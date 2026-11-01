@@ -1,0 +1,611 @@
+{
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "view_file",
+        "description": "Dosyayı satır numaralarıyla okur (aralıksız ilk 250, aralıkla en fazla 400 satır). Büyük dosyada önce find_files ile yeri bul.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Dosya yolu"
+            },
+            "start_line": {
+              "type": "integer",
+              "description": "Başlangıç satırı (1'den)"
+            },
+            "end_line": {
+              "type": "integer",
+              "description": "Bitiş satırı"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit_file",
+        "description": "Dosyada kod bloğunu (veya `edits` ile birden çok bloğu) cerrahi değiştirir; diff gösterilir, yedek alınır, CRLF/BOM korunur.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Dosya yolu"
+            },
+            "target_snippet": {
+              "type": "string",
+              "description": "Birebir eşleşecek eski kod"
+            },
+            "replacement_snippet": {
+              "type": "string",
+              "description": "Yeni kod"
+            },
+            "all": {
+              "type": "boolean",
+              "description": "true: tüm eşleşmeler",
+              "default": false
+            },
+            "start_line": {
+              "type": "integer",
+              "description": "Satır aralığı kipi: değiştirilecek ilk satır (1 tabanlı); target_snippet gerekmez, replacement_snippet bu satırların yerine geçer"
+            },
+            "end_line": {
+              "type": "integer",
+              "description": "Satır aralığı kipi: son satır (dahil)"
+            },
+            "edits": {
+              "type": "array",
+              "description": "Çoklu düzenleme; verilirse target/replacement_snippet yok sayılır",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "target_snippet": {
+                    "type": "string"
+                  },
+                  "replacement_snippet": {
+                    "type": "string"
+                  },
+                  "all": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                },
+                "required": [
+                  "target_snippet",
+                  "replacement_snippet"
+                ]
+              }
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write_file",
+        "description": "Dosya oluşturur, tamamen yeniden yazar ya da append=true ile sonuna ekler. Tek çağrıda en çok ~2500 karakter yaz; büyük dosyaları ilk parça write_file, sonrakiler append=true ile parça parça yaz (uzun çağrı token sınırında kesilir).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Dosya yolu"
+            },
+            "content": {
+              "type": "string",
+              "description": "Tam içerik (append=true ise eklenecek metin)"
+            },
+            "append": {
+              "type": "boolean",
+              "description": "true: içeriği dosyanın sonuna ekle"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "list_directory",
+        "description": "Klasördeki dosya ve alt dizinleri listeler.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Klasör yolu",
+              "default": "."
+            },
+            "recursive": {
+              "type": "boolean",
+              "description": "Özyinelemeli",
+              "default": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "find_files",
+        "description": "Dosya adına göre (glob) arar; query verilirse içerikte arar ve `yol:satır: metin` döner (büyük/küçük harf duyarsız, a|b alternatif, regex olur). Kod aramada findstr/grep yerine bunu kullan.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Dosya deseni (*.py)"
+            },
+            "query": {
+              "type": "string",
+              "description": "İçerikte aranacak metin (a|b|c)"
+            },
+            "context": {
+              "type": "integer",
+              "description": "Eşleşmenin önü/arkasından gösterilecek satır (0-15); view_file tahminini önler"
+            }
+          },
+          "required": [
+            "pattern"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "run_command",
+        "description": "YEREL makinede, çalışma alanında komut çalıştırır (test, derleme, sistem kontrolü). Kabuk bağlam bloğunda yazar (Windows'ta Git Bash varsa o: POSIX komutları, çok satır olur; yoksa cmd.exe). PowerShell için use_powershell=true, Python kodu için use_python=true. Çıktı uzunsa özetlenir; hedefli komut kullan.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "Komut"
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "description": "Zaman aşımı sn (varsayılan 180, en çok 600)",
+              "default": 180
+            },
+            "use_python": {
+              "type": "boolean",
+              "description": "true: command Python kodudur"
+            },
+            "use_powershell": {
+              "type": "boolean",
+              "description": "true: komut PowerShell betiğidir"
+            },
+            "run_in_background": {
+              "type": "boolean",
+              "description": "true: komut arka planda başlar ve hemen bir id (örn: bg-1) döner; beklemez. Çıktıyı/durumu check_background ile artımlı oku, gerekirse stop_background ile ağacı öldür.",
+              "default": false
+            }
+          },
+          "required": [
+            "command"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "check_background",
+        "description": "run_in_background ile başlatılan komutun yeni çıktısını ve durumunu döner; çalışıyorsa bitmesini wait_seconds (varsayılan 20) kadar bekler. Art arda hızlı çağırma.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Arka plan kimliği (bg-1)"
+            },
+            "wait_seconds": {
+              "type": "integer",
+              "description": "Bekleme sn (varsayılan 20, 0 = hemen, en çok 300)"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "stop_background",
+        "description": "Arka plan komutunu ve süreç ağacını sonlandırır.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Arka plan kimliği"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "create_plan",
+        "description": "Plan modunda plans/<ad>/plan.md yazar; kaynak dosyalara dokunmaz. Planı TEK çağrıda yaz: en fazla 2-3 hedefli okuma yeter, keşfi uzatma. Yazdıktan sonra dosyayı doğrulama için yeniden okuma; sonuç mesajı yeterlidir.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Plan adı (klasör adı)"
+            },
+            "content": {
+              "type": "string",
+              "description": "Markdown plan: hedef dosyalar, yapılacak değişiklik, doğrulama. Tam metni tek seferde ver."
+            }
+          },
+          "required": [
+            "name",
+            "content"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "ssh_list_hosts",
+        "description": "SON ÇARE: kayıtlı SSH alias'larını listeler; hedef biliniyorsa (alias ya da user@host) çağırma. Yalnız UZAK sunucu için; bu host/localhost yereldir.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "ssh_run",
+        "description": "Yalnızca açık UZAK hedef isteğinde kayıtlı sunucuda (alias) komut çalıştırır; yerel için run_command. ask/plan modunda salt-okuma; çalıştırmadan önce onay istenir.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "alias": {
+              "type": "string",
+              "description": "Kayıtlı alias ya da kayıtsız hedef için user@host[:port]"
+            },
+            "command": {
+              "type": "string",
+              "description": "Uzak komut; preset verilirse boş bırak"
+            },
+            "preset": {
+              "type": "string",
+              "enum": [
+                "k8s_health",
+                "k8s_resources"
+              ],
+              "description": "Hazır salt-okuma komutu (command yerine)"
+            },
+            "namespace": {
+              "type": "string",
+              "description": "preset için namespace (boş = tümü)"
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "description": "Zaman aşımı sn (varsayılan 60, en çok 600)",
+              "default": 60
+            }
+          },
+          "required": [
+            "alias"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "ssh_read_file",
+        "description": "Yalnızca UZAK hedefte kayıtlı sunucudaki dosyayı okur (salt-okuma, her modda).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "alias": {
+              "type": "string",
+              "description": "Kayıtlı alias ya da kayıtsız hedef için user@host[:port]"
+            },
+            "remote_path": {
+              "type": "string",
+              "description": "Uzak dosya yolu"
+            }
+          },
+          "required": [
+            "alias",
+            "remote_path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "ssh_write_file",
+        "description": "Yalnızca UZAK hedefte sunucudaki dosyaya yazar; host'ta allow_write=true ve kullanıcı onayı gerekir. ask/plan'da kapalı.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "alias": {
+              "type": "string",
+              "description": "Kayıtlı alias ya da kayıtsız hedef için user@host[:port]"
+            },
+            "remote_path": {
+              "type": "string",
+              "description": "Uzak dosya yolu"
+            },
+            "content": {
+              "type": "string",
+              "description": "Tam içerik"
+            }
+          },
+          "required": [
+            "alias",
+            "remote_path",
+            "content"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "memory_save",
+        "description": "Gelecek oturumlar için kalıcı not kaydeder. Kullanıcı 'not ekle', 'not al', 'not et', 'hatırla', 'aklında tut', 'unutma' gibi bir şey dediğinde ya da kalıcı bir tercih/kural belirttiğinde HEMEN çağır (/memory komutunu bekleme). Kapsam belirtilmediyse: tüm projeleri ilgilendiren tercih/kişisel not = global, projeye özgü = project. Sır/parola yazma.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "description": "Kısa, kendi başına anlaşılır not"
+            },
+            "scope": {
+              "type": "string",
+              "enum": [
+                "global",
+                "project"
+              ],
+              "description": "global: tüm projeler (~/.evren/memory.json); project: yalnız bu çalışma alanı",
+              "default": "project"
+            }
+          },
+          "required": [
+            "text"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "ask_user",
+        "description": "Yalnızca gerçek bloklayıcı belirsizlik veya yeni risk için sorar; yanıtlanmış soruyu tekrarlama. kind=confirm olumlu yanıtı plan→normal geçişi tetikler.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string",
+              "description": "Soru"
+            },
+            "kind": {
+              "type": "string",
+              "description": "confirm (evet/hayır) veya text",
+              "enum": [
+                "confirm",
+                "text"
+              ],
+              "default": "confirm"
+            }
+          },
+          "required": [
+            "question"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "todo_write",
+        "description": "Çok adımlı işte yapılacaklar listesini tutar; her güncellemede TÜM listeyi gönder (content + status). Aynı anda tek in_progress. Her madde için değil, birkaç madde bitince toplu güncelle.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "todos": {
+              "type": "array",
+              "description": "Tam liste; boş dizi temizler",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "content": {
+                    "type": "string",
+                    "description": "Görev"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "in_progress",
+                      "completed"
+                    ],
+                    "default": "pending"
+                  }
+                },
+                "required": [
+                  "content"
+                ]
+              }
+            }
+          },
+          "required": [
+            "todos"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "web_fetch",
+        "description": "http/https URL'yi GET ile indirir; HTML okunur metne çevrilir, JSON/düz metin olduğu gibi. Salt-okuma, boyut ve zaman sınırlı.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "http/https adresi"
+            },
+            "timeout": {
+              "type": "integer",
+              "description": "Zaman aşımı sn (varsayılan 15, en çok 60)"
+            },
+            "max_chars": {
+              "type": "integer",
+              "description": "Azami karakter (varsayılan 20000)"
+            }
+          },
+          "required": [
+            "url"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "delegate",
+        "description": "Bağımsız araştırma görevini temiz bağlamlı salt-okuma alt ajana devreder; yalnızca kısa özet döner. Yalnızca normal modda.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string",
+              "description": "Kendi başına anlaşılır araştırma görevi"
+            },
+            "max_steps": {
+              "type": "integer",
+              "description": "Azami adım (varsayılan 6, en çok 12)"
+            },
+            "agent": {
+              "type": "string",
+              "description": "Alt ajan tanımı adı (varsayılan: researcher, salt-okuma)"
+            }
+          },
+          "required": [
+            "task"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "apply_patch",
+        "description": "Unified diff (---/+++/@@) ile bir veya birden çok dosyayı tek seferde yamalar; önizleme ve onay gerekir. Yeni dosya için '--- /dev/null'.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "patch": {
+              "type": "string",
+              "description": "Unified diff metni"
+            }
+          },
+          "required": [
+            "patch"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "clone_tree",
+        "description": "src dizinini dst'ye kopyalar; replacements sırayla dosya/klasör adlarına VE metin dosyası içeriğine uygulanır (Esmm->Egp, esmm->egp, ESMM->EGP gibi tam eşleşme; sıra önemli). exclude varsayılan: .git,bin,obj,node_modules. dry_run=true yalnız rapor verir. Mekanik kopyala-yeniden adlandır işlerinde elle dosya dosya yazmak yerine bunu kullan.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "src": {
+              "type": "string"
+            },
+            "dst": {
+              "type": "string",
+              "description": "Boş ya da olmayan hedef dizin; mevcut dosyaların üzerine yazılmaz (skip)"
+            },
+            "replacements": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "description": "[[\"Esmm\",\"Egp\"],[\"esmm\",\"egp\"],[\"ESMM\",\"EGP\"]]"
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "dry_run": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "src",
+            "dst",
+            "replacements"
+          ]
+        }
+      }
+    }
+  ],
+  "search_code": {
+    "type": "function",
+    "function": {
+      "name": "search_code",
+      "description": "Anlamsal kod arama (salt-okuma): doğal dil sorgusuyla depoda ilgili kod parçalarını path:satır aralığıyla döndürür. 'X nerede/nasıl kullanılıyor' soruları için.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Aranan şeyin doğal dil tarifi"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  }
+}

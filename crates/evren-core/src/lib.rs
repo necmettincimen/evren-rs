@@ -7,6 +7,7 @@ pub mod models;
 pub mod secret_vault;
 pub mod settings;
 pub mod texts;
+pub mod tools;
 
 pub use error::EvrenError;
 
