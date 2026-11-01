@@ -1,4 +1,5 @@
-//! `EvrenClient` eşdeğeri: sohbet tamamlama (akışsız), model listesi, kota.
+//! `EvrenClient` eşdeğeri: sohbet tamamlama (akışsız ve SSE akışlı),
+//! model listesi, kota, düşük kotalı anahtardan en iyi anahtara geçiş.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -7,11 +8,13 @@ use std::time::Duration;
 
 use evren_core::config::{Config, SslVerify};
 use evren_core::{models, texts, EvrenError};
+use futures_util::StreamExt;
 use serde_json::{json, Map, Value};
 
 use crate::errors;
 use crate::key_pool::{ApiKeyPool, StateCounts};
 use crate::quota::normalize_quota;
+use crate::sse::{SseParser, StreamAssembler, StreamDelta};
 
 /// `list_models` başarısız olursa dönen sabit liste (Python ile aynı).
 pub const FALLBACK_MODELS: [&str; 4] = [
@@ -24,6 +27,28 @@ pub const FALLBACK_MODELS: [&str; 4] = [
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const READ_TIMEOUT: Duration = Duration::from_secs(120);
 const SHORT_TIMEOUT: Duration = Duration::from_secs(20);
+/// Akışta iki parça arasındaki boşta kalma sınırı (`STREAM_TIMEOUT`).
+const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+/// `thinking: false` gönderildiğinde daha kısa boşta kalma sınırı.
+const STREAM_IDLE_TIMEOUT_NO_THINK: Duration = Duration::from_secs(90);
+/// Akış isteğinin toplam üst sınırı (istemci düzeyindeki 120 sn'yi geçersiz kılar).
+const STREAM_TOTAL_TIMEOUT: Duration = Duration::from_secs(24 * 3600);
+/// Geçici (yeniden denenebilir) hatalarda akış öncesi deneme sayısı.
+pub const TRANSIENT_RETRIES: u32 = 2;
+
+/// `_transient_backoff`: Retry-After varsa o, yoksa `tries * 2` saniye.
+pub fn transient_backoff(err: &EvrenError, tries: u32) -> f64 {
+    match err.retry_after() {
+        Some(ra) if ra > 0.0 => ra,
+        _ => f64::from(tries) * 2.0,
+    }
+}
+
+/// `_can_retry_transient`: akış başlamadıysa, deneme hakkı varsa ve hata
+/// yeniden denenebilir türdeyse.
+pub fn can_retry_transient(err: &EvrenError, streamed_any: bool, tries: u32) -> bool {
+    !streamed_any && tries < TRANSIENT_RETRIES && err.retryable()
+}
 
 /// `chat_complete` parametreleri.
 #[derive(Debug, Clone, Default)]
@@ -113,6 +138,15 @@ pub struct ApiClient {
     reasoning_effort: Mutex<Option<String>>,
     thinking_control: AtomicBool,
     last_remaining_tokens: Mutex<Option<i64>>,
+    key_min_remaining: i64,
+}
+
+/// `select_best_key` sonucu: seçilen anahtar ve normalize kota satırı.
+#[derive(Debug, Clone)]
+pub struct BestKey {
+    pub key: String,
+    pub remaining: i64,
+    pub quota: Map<String, Value>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -193,7 +227,12 @@ impl ApiClient {
             reasoning_effort: Mutex::new(config.reasoning_effort()),
             thinking_control: AtomicBool::new(true),
             last_remaining_tokens: Mutex::new(None),
+            key_min_remaining: config.key_min_remaining(),
         })
+    }
+
+    pub fn key_min_remaining(&self) -> i64 {
+        self.key_min_remaining
     }
 
     pub fn base_url(&self) -> &str {
@@ -220,7 +259,12 @@ impl ApiClient {
         f(&mut lock(&self.pool))
     }
 
-    fn request(&self, method: reqwest::Method, path: &str, key: &str) -> reqwest::RequestBuilder {
+    pub(crate) fn request(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        key: &str,
+    ) -> reqwest::RequestBuilder {
         self.http
             .request(method, format!("{}{}", self.base_url, path))
             .header("X-API-Key", key)
@@ -251,14 +295,98 @@ impl ApiClient {
         })
     }
 
+    /// `_maybe_switch_low_quota_key`: geçerli anahtarın son görülen günlük
+    /// kotası tabanın altındaysa (ve ≥2 anahtar varsa) en iyi anahtara geçer.
+    /// Okuma tek seferliktir; geçiş başarısız olsa da sessizce devam edilir.
+    async fn maybe_switch_low_quota_key(&self) {
+        let low = {
+            let mut pool = lock(&self.pool);
+            if pool.len() < 2 {
+                return;
+            }
+            let Some(key) = pool.current_key().map(str::to_owned) else {
+                return;
+            };
+            match pool.forget_daily_remaining(&key) {
+                Some(r) => r < self.key_min_remaining,
+                None => false,
+            }
+        };
+        if low {
+            let _ = self.select_best_key(None).await;
+        }
+    }
+
+    /// Sohbet yolları: önce düşük kota geçişi, sonra anahtar edinme.
+    async fn acquire_key_switching(&self) -> Result<String, EvrenError> {
+        self.maybe_switch_low_quota_key().await;
+        self.acquire_key()
+    }
+
+    fn remaining_header(headers: &HashMap<String, String>) -> Option<i64> {
+        let raw = headers.get("x-evren-daily-remaining-tokens")?.trim();
+        raw.parse::<i64>()
+            .ok()
+            .or_else(|| raw.parse::<f64>().ok().map(|f| f as i64))
+    }
+
     fn note_remaining_header(&self, headers: &HashMap<String, String>, key: &str) {
-        if let Some(v) = headers.get("x-evren-daily-remaining-tokens") {
-            if let Ok(n) = v.trim().parse::<i64>() {
-                if self.current_key().as_deref() == Some(key) {
-                    *lock(&self.last_remaining_tokens) = Some(n);
-                }
+        if let Some(n) = Self::remaining_header(headers) {
+            if self.current_key().as_deref() == Some(key) {
+                *lock(&self.last_remaining_tokens) = Some(n);
             }
         }
+    }
+
+    /// Sohbet yanıtı başlıkları: `last_remaining_tokens` + havuz kaydı
+    /// (Python'da yalnız sohbet istemcisindeki yanıt kancası kaydeder).
+    fn note_chat_headers(&self, headers: &HashMap<String, String>, key: &str) {
+        self.note_remaining_header(headers, key);
+        if let Some(n) = Self::remaining_header(headers) {
+            lock(&self.pool).record_daily_remaining(key, n);
+        }
+    }
+
+    /// `select_best_key`: tüm anahtarların kotasını eşzamanlı çeker, en çok
+    /// kalanı olanı sabitler; tabanın altındaki diğerlerini `quota_low` ile
+    /// devre dışı bırakır. Hiçbir anahtar sayısal kota döndürmezse hata.
+    pub async fn select_best_key(&self, min_remaining: Option<i64>) -> Result<BestKey, EvrenError> {
+        let floor = min_remaining.unwrap_or(self.key_min_remaining);
+        let keys = lock(&self.pool).key_values();
+        let quotas =
+            futures_util::future::join_all(keys.iter().map(|k| self.get_quota(Some(k.as_str()))))
+                .await;
+        let mut rows: Vec<(String, i64, Map<String, Value>)> = keys
+            .into_iter()
+            .zip(quotas)
+            .filter_map(|(k, q)| {
+                let remaining = q.get("remaining_daily_tokens").and_then(Value::as_i64)?;
+                Some((k, remaining, q))
+            })
+            .collect();
+        if rows.is_empty() {
+            return Err(EvrenError::Other(texts::QUOTA_UNKNOWN.to_owned()));
+        }
+        rows.sort_by_key(|r| std::cmp::Reverse(r.1));
+        let mut rows = rows.into_iter();
+        let Some((best, remaining, quota)) = rows.next() else {
+            return Err(EvrenError::Other(texts::QUOTA_UNKNOWN.to_owned()));
+        };
+        {
+            let mut pool = lock(&self.pool);
+            for (k, r, _) in rows {
+                if r < floor {
+                    pool.report_disabled(&k, "quota_low");
+                }
+            }
+            pool.pin(&best);
+        }
+        *lock(&self.last_remaining_tokens) = Some(remaining);
+        Ok(BestKey {
+            key: best,
+            remaining,
+            quota,
+        })
     }
 
     /// GET /models → kimlik listesi; her türlü hatada sabit yedek liste.
@@ -269,7 +397,7 @@ impl ApiClient {
                 .map(|s| (*s).to_owned())
                 .collect::<Vec<_>>()
         };
-        let Ok(key) = self.acquire_key() else {
+        let Some(key) = self.current_key().or_else(|| self.acquire_key().ok()) else {
             return fallback();
         };
         let resp = match self
@@ -316,7 +444,11 @@ impl ApiClient {
     pub async fn get_quota(&self, api_key: Option<&str>) -> Map<String, Value> {
         let key = match api_key {
             Some(k) => k.to_owned(),
-            None => match self.acquire_key() {
+            None => match self
+                .current_key()
+                .ok_or(())
+                .or_else(|()| self.acquire_key())
+            {
                 Ok(k) => k,
                 Err(e) => return self.quota_error(&e.to_string(), None),
             },
@@ -399,9 +531,8 @@ impl ApiClient {
         false
     }
 
-    /// Akışsız sohbet tamamlama; anahtar havuzu, soğuma ve yeniden deneme
-    /// mantığı Python `chat_complete` ile aynıdır.
-    pub async fn chat_complete(&self, req: ChatRequest) -> Result<ChatResponse, EvrenError> {
+    /// Akışsız ve akışlı yolların ortak istek gövdesi.
+    fn build_body(&self, req: &ChatRequest) -> Map<String, Value> {
         let model = req
             .model
             .clone()
@@ -427,6 +558,13 @@ impl ApiClient {
             }
         }
         self.apply_reasoning_controls(&mut body, &model, req.thinking);
+        body
+    }
+
+    /// Akışsız sohbet tamamlama; anahtar havuzu, soğuma ve yeniden deneme
+    /// mantığı Python `chat_complete` ile aynıdır.
+    pub async fn chat_complete(&self, req: ChatRequest) -> Result<ChatResponse, EvrenError> {
+        let mut body = self.build_body(&req);
 
         let max_retries = if req.max_retries == 0 {
             3
@@ -437,7 +575,7 @@ impl ApiClient {
         let mut last_error: Option<EvrenError> = None;
 
         while attempt < max_retries {
-            let key = match self.acquire_key() {
+            let key = match self.acquire_key_switching().await {
                 Ok(k) => k,
                 Err(e) => {
                     let ra = e.retry_after().unwrap_or(0.0);
@@ -538,7 +676,7 @@ impl ApiClient {
             .await
             .map_err(|e| errors::from_reqwest(&e, Some(key)))?;
         let headers = header_map(resp.headers());
-        self.note_remaining_header(&headers, key);
+        self.note_chat_headers(&headers, key);
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
@@ -555,6 +693,183 @@ impl ApiClient {
             failed_key: Some(key.to_owned()),
         })?;
         Ok(ChatResponse { raw })
+    }
+
+    /// SSE akışlı sohbet tamamlama (`chat_stream_assembled`). Her parça
+    /// `on_delta` ile iletilir; sonuç akışsız yanıtla aynı biçimde döner.
+    /// Anahtar değişimi, geçici hata denemesi ve yarıda kesilen yanıtı
+    /// sürdürme mantığı Python ile aynıdır. Şartlar hatası çağırana bırakılır.
+    pub async fn chat_complete_stream<F>(
+        &self,
+        req: ChatRequest,
+        mut on_delta: F,
+    ) -> Result<ChatResponse, EvrenError>
+    where
+        F: FnMut(StreamDelta),
+    {
+        let mut body = self.build_body(&req);
+        body.insert("stream".into(), Value::Bool(true));
+        body.insert("stream_options".into(), json!({"include_usage": true}));
+        let idle = if body.get("thinking") == Some(&Value::Bool(false)) {
+            STREAM_IDLE_TIMEOUT_NO_THINK
+        } else {
+            STREAM_IDLE_TIMEOUT
+        };
+        let base_messages: Vec<Value> = body
+            .get("messages")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+
+        let max_attempts = lock(&self.pool).len().max(1);
+        let mut attempts = 0usize;
+        let mut tries: u32 = 0;
+        let mut resumed = false;
+        let mut asm = StreamAssembler::new();
+        let mut last_error: Option<EvrenError> = None;
+
+        while attempts < max_attempts {
+            let key = self.acquire_key_switching().await?;
+            let err = match self
+                .stream_once(&body, &key, idle, &mut asm, &mut on_delta)
+                .await
+            {
+                Ok(()) => {
+                    lock(&self.pool).report_success(&key);
+                    return Ok(ChatResponse {
+                        raw: asm.into_raw(),
+                    });
+                }
+                Err(e) => e,
+            };
+            let text = err.to_string();
+            if !asm.streamed_any() && self.drop_rejected_param(&mut body, &text) {
+                continue;
+            }
+            match &err {
+                EvrenError::TermsNotAccepted { .. } => return Err(err),
+                EvrenError::QuotaExhausted { .. } | EvrenError::Auth { .. } => {
+                    let reason = if matches!(err, EvrenError::Auth { .. }) {
+                        "auth_error"
+                    } else {
+                        "quota_exhausted"
+                    };
+                    let has = {
+                        let mut p = lock(&self.pool);
+                        p.report_disabled(&key, reason);
+                        p.has_available()
+                    };
+                    attempts += 1;
+                    last_error = Some(err);
+                    if has {
+                        continue;
+                    }
+                    break;
+                }
+                EvrenError::RateLimit { retry_after, .. } => {
+                    let has = {
+                        let mut p = lock(&self.pool);
+                        p.report_rate_limited(&key, *retry_after);
+                        p.has_available()
+                    };
+                    attempts += 1;
+                    last_error = Some(err);
+                    if has {
+                        continue;
+                    }
+                    break;
+                }
+                EvrenError::Network { .. }
+                    if asm.streamed_any()
+                        && !resumed
+                        && asm.tool_calls.is_empty()
+                        && !asm.content.is_empty() =>
+                {
+                    resumed = true;
+                    let mut msgs = base_messages.clone();
+                    msgs.push(json!({"role": "assistant", "content": asm.content.clone()}));
+                    msgs.push(json!({"role": "user", "content": texts::STREAM_RESUME_PROMPT}));
+                    body.insert("messages".into(), Value::Array(msgs));
+                    continue;
+                }
+                _ => {
+                    if can_retry_transient(&err, asm.streamed_any(), tries) {
+                        tries += 1;
+                        let wait = transient_backoff(&err, tries);
+                        tokio::time::sleep(Duration::from_secs_f64(wait)).await;
+                        continue;
+                    }
+                    return Err(err);
+                }
+            }
+        }
+        Err(last_error.unwrap_or_else(|| EvrenError::RateLimit {
+            message: texts::NO_KEY_AVAILABLE.to_owned(),
+            retry_after: None,
+            failed_key: None,
+        }))
+    }
+
+    /// Tek bir akış isteği: SSE parçalarını okur, toplayıcıya ve `on_delta`'ya
+    /// iletir. Parçalar arası boşta kalma `idle`'ı aşarsa ağ hatası.
+    async fn stream_once(
+        &self,
+        body: &Map<String, Value>,
+        key: &str,
+        idle: Duration,
+        asm: &mut StreamAssembler,
+        on_delta: &mut dyn FnMut(StreamDelta),
+    ) -> Result<(), EvrenError> {
+        let resp = self
+            .request(reqwest::Method::POST, "/chat/completions", key)
+            .timeout(STREAM_TOTAL_TIMEOUT)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| errors::from_reqwest(&e, Some(key)))?;
+        let headers = header_map(resp.headers());
+        self.note_chat_headers(&headers, key);
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(errors::from_status(
+                status.as_u16(),
+                &headers,
+                &text,
+                Some(key),
+            ));
+        }
+        let mut stream = resp.bytes_stream();
+        let mut parser = SseParser::new();
+        loop {
+            let chunk = match tokio::time::timeout(idle, stream.next()).await {
+                Err(_) => {
+                    return Err(EvrenError::Network {
+                        message: texts::STREAM_TIMEOUT_MESSAGE.to_owned(),
+                        failed_key: Some(key.to_owned()),
+                    })
+                }
+                Ok(None) => break,
+                Ok(Some(Err(e))) => return Err(errors::from_reqwest(&e, Some(key))),
+                Ok(Some(Ok(bytes))) => bytes,
+            };
+            for payload in parser.feed(&chunk) {
+                for d in asm.apply(&payload)? {
+                    on_delta(d);
+                }
+            }
+            if parser.done {
+                break;
+            }
+        }
+        if !parser.done {
+            for payload in parser.finish() {
+                for d in asm.apply(&payload)? {
+                    on_delta(d);
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -586,5 +901,31 @@ mod tests {
         assert_eq!(r.reasoning(), Some("düşündüm"));
         assert_eq!(r.finish_reason(), Some("stop"));
         assert!(r.tool_calls().is_none());
+    }
+
+    #[test]
+    fn transient_helpers() {
+        let server = EvrenError::Server {
+            message: "503".into(),
+            status_code: Some(503),
+            failed_key: None,
+        };
+        assert!(can_retry_transient(&server, false, 0));
+        assert!(can_retry_transient(&server, false, 1));
+        assert!(!can_retry_transient(&server, false, 2));
+        assert!(!can_retry_transient(&server, true, 0));
+        let quota = EvrenError::QuotaExhausted {
+            message: "q".into(),
+            failed_key: None,
+        };
+        assert!(!can_retry_transient(&quota, false, 0));
+        assert!((transient_backoff(&server, 1) - 2.0).abs() < 1e-9);
+        assert!((transient_backoff(&server, 2) - 4.0).abs() < 1e-9);
+        let rl = EvrenError::RateLimit {
+            message: "r".into(),
+            retry_after: Some(7.5),
+            failed_key: None,
+        };
+        assert!((transient_backoff(&rl, 1) - 7.5).abs() < 1e-9);
     }
 }

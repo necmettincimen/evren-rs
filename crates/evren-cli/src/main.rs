@@ -1,11 +1,15 @@
 //! `evren` komut satırı girişi. Argüman yüzeyi Python `cli.build_parser`
 //! ile aynıdır; henüz taşınmayan alt komutlar açık bir hata ile çıkar.
 
+use std::io::{IsTerminal, Write as _};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use evren_api::{ApiClient, ChatRequest};
+use evren_api::{
+    ensure_terms_accepted, ensure_terms_for_keys, mask_key, ApiClient, ChatRequest, StreamDelta,
+    TermsOptions, TermsUi,
+};
 use evren_core::config::{get_workspace_dir, Config};
 use evren_core::{models, texts, EvrenError};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -113,12 +117,100 @@ fn print_info(msg: &str) {
     println!("[*] {msg}");
 }
 
+fn print_success(msg: &str) {
+    println!("[+] {msg}");
+}
+
+fn print_warning(msg: &str) {
+    println!("[!] {msg}");
+}
+
 fn print_error(msg: &str) {
     eprintln!("[X] {msg}");
 }
 
 fn status(msg: &str) {
     eprintln!("{msg}");
+}
+
+/// Durum satırını (stderr) siler; ANSI destekli uçbirimler için.
+fn clear_status() {
+    eprint!("\r\x1b[2K");
+}
+
+/// Binlik ayraçlı sayı (`f"{n:,}"`).
+fn thousands(n: i64) -> String {
+    let digits = n.unsigned_abs().to_string();
+    let mut groups: Vec<&str> = Vec::new();
+    let mut end = digits.len();
+    while end > 3 {
+        groups.push(&digits[end - 3..end]);
+        end -= 3;
+    }
+    groups.push(&digits[..end]);
+    groups.reverse();
+    let joined = groups.join(",");
+    if n < 0 {
+        format!("-{joined}")
+    } else {
+        joined
+    }
+}
+
+fn headless() -> bool {
+    std::env::var("EVREN_HEADLESS")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+        || !std::io::stdin().is_terminal()
+}
+
+/// `ui.prompt_confirm`: başsız kipte varsayılanı yazıp döner.
+fn prompt_confirm(msg: &str, default_yes: bool) -> bool {
+    if headless() {
+        println!("{}", texts::confirm_headless(msg, default_yes));
+        return default_yes;
+    }
+    print!("{}", texts::confirm_prompt(msg, default_yes));
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    match std::io::stdin().read_line(&mut line) {
+        Ok(0) | Err(_) => {
+            println!("{}", texts::confirm_no_input(default_yes));
+            default_yes
+        }
+        Ok(_) => {
+            let a = line.trim().to_lowercase();
+            if a.is_empty() {
+                default_yes
+            } else {
+                matches!(a.as_str(), "y" | "yes" | "evet" | "e")
+            }
+        }
+    }
+}
+
+/// Şartlar akışının CLI çıktısı.
+struct CliTermsUi;
+
+impl TermsUi for CliTermsUi {
+    fn info(&mut self, msg: &str) {
+        print_info(msg);
+    }
+    fn success(&mut self, msg: &str) {
+        print_success(msg);
+    }
+    fn warning(&mut self, msg: &str) {
+        print_warning(msg);
+    }
+    fn error(&mut self, msg: &str) {
+        print_error(msg);
+    }
+    fn raw(&mut self, msg: &str) {
+        println!("{msg}");
+    }
+    fn confirm(&mut self, msg: &str) -> bool {
+        prompt_confirm(msg, false)
+    }
 }
 
 fn not_ported() -> ExitCode {
@@ -145,30 +237,131 @@ async fn cmd_models(config: &Config) -> Result<(), EvrenError> {
     Ok(())
 }
 
+/// `_pin_best_key`: ≥2 anahtar varsa kotası en yüksek olanı sabitler.
+async fn pin_best_key(api: &ApiClient) {
+    if api.with_pool(|p| p.len()) < 2 {
+        return;
+    }
+    match api.select_best_key(None).await {
+        Ok(best) => print_info(&texts::active_key(
+            &mask_key(&best.key),
+            &thousands(best.remaining),
+        )),
+        Err(e) => print_warning(&texts::key_quota_unreadable(&e)),
+    }
+}
+
+async fn cmd_terms(config: &Config, force: bool) -> Result<ExitCode, EvrenError> {
+    let api = client(config)?;
+    let keys = config.api_keys();
+    let mut ui = CliTermsUi;
+    let ok = ensure_terms_for_keys(&api, &keys, !headless(), force, &mut ui).await;
+    Ok(if ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
+}
+
+/// Akışlı yanıtın uçbirim çıktısı: durum satırı ilk parçada silinir,
+/// düşünme başlığı bir kez basılır, içerik ham akar.
+#[derive(Default)]
+struct StreamPrinter {
+    started: bool,
+    reasoning_shown: bool,
+    content_shown: bool,
+}
+
+impl StreamPrinter {
+    fn on_delta(&mut self, d: StreamDelta) {
+        if !self.started {
+            clear_status();
+            self.started = true;
+        }
+        match d {
+            StreamDelta::Reasoning(r) => {
+                if !self.reasoning_shown {
+                    println!("{}", texts::REASONING_HEADER);
+                    self.reasoning_shown = true;
+                }
+                print!("{r}");
+            }
+            StreamDelta::Content(c) => {
+                if self.reasoning_shown && !self.content_shown {
+                    println!();
+                }
+                self.content_shown = true;
+                print!("{c}");
+            }
+            StreamDelta::ToolCalls(_) => {}
+        }
+        let _ = std::io::stdout().flush();
+    }
+}
+
 async fn cmd_chat(
     config: &Config,
     model: Option<String>,
     prompt: Option<String>,
     max_tokens: Option<u32>,
-) -> Result<(), EvrenError> {
+    stream: bool,
+) -> Result<ExitCode, EvrenError> {
     let prompt = prompt.unwrap_or_default();
     if prompt.trim().is_empty() {
         return Err(EvrenError::Other("İstek boş olamaz.".to_owned()));
     }
     let api = client(config)?;
+    // Python'dan sapma: şartlar, havuzdaki en iyi anahtar sabitlendikten
+    // sonra o anahtarla kontrol edilir (ilk anahtar geçersizse de çalışır).
+    pin_best_key(&api).await;
+    let mut ui = CliTermsUi;
+    let terms_ok = ensure_terms_accepted(
+        &api,
+        None,
+        TermsOptions {
+            interactive: !headless(),
+            force: false,
+            silent_ok: true,
+        },
+        &mut ui,
+    )
+    .await;
+    if !terms_ok {
+        return Ok(ExitCode::from(1));
+    }
     let model = model.unwrap_or_else(|| config.default_model());
     let mut req = ChatRequest::simple(texts::CHAT_SYSTEM, &prompt);
     req.model = Some(model.clone());
     req.max_tokens = Some(max_tokens.unwrap_or(config.default_max_tokens()));
-    status(&texts::model_thinking(&model));
-    let resp = api.chat_complete(req).await?;
-    if let Some(reasoning) = resp.reasoning() {
-        println!("💭 Düşünme / Akıl Yürütme");
-        println!("{reasoning}");
-        println!();
+
+    if stream {
+        status(&texts::model_thinking_stream(&model));
+        let mut printer = StreamPrinter::default();
+        match api.chat_complete_stream(req, |d| printer.on_delta(d)).await {
+            Ok(_) => {
+                println!("\n");
+                Ok(ExitCode::SUCCESS)
+            }
+            Err(e) => {
+                if !printer.started {
+                    clear_status();
+                }
+                print_error(&texts::api_error(e.kind_name(), &e));
+                println!("\n");
+                Ok(ExitCode::from(1))
+            }
+        }
+    } else {
+        status(&texts::model_thinking(&model));
+        let resp = api.chat_complete(req).await?;
+        if let Some(reasoning) = resp.reasoning() {
+            println!("{}", texts::REASONING_HEADER);
+            println!("{reasoning}");
+            println!();
+        }
+        println!("{}", resp.content().unwrap_or(""));
+        Ok(ExitCode::SUCCESS)
     }
-    println!("{}", resp.content().unwrap_or(""));
-    Ok(())
 }
 
 async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
@@ -199,13 +392,12 @@ async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
             max_tokens,
             file,
         }) => {
-            if stream || !file.is_empty() {
+            if !file.is_empty() {
                 return Ok(not_ported());
             }
-            cmd_chat(&config, cli.model, prompt, max_tokens)
-                .await
-                .map(|()| ExitCode::SUCCESS)
+            cmd_chat(&config, cli.model, prompt, max_tokens, stream).await
         }
+        Some(Command::Terms { force }) => cmd_terms(&config, force).await,
         Some(_) | None => Ok(not_ported()),
     }
 }

@@ -1,6 +1,7 @@
 //! API anahtar havuzu (`api_key_pool.py`): yapışkan geçerli anahtar,
 //! soğuma (429) ve devre dışı bırakma (kota/yetki) durumları.
 
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 pub const DEFAULT_COOLDOWN_SECONDS: f64 = 60.0;
@@ -18,6 +19,7 @@ pub struct PooledKey {
     pub state: KeyState,
     cooldown_until: Option<Instant>,
     pub failure_count: u32,
+    pub success_count: u32,
     pub last_error: Option<String>,
 }
 
@@ -28,6 +30,7 @@ impl PooledKey {
             state: KeyState::Ready,
             cooldown_until: None,
             failure_count: 0,
+            success_count: 0,
             last_error: None,
         }
     }
@@ -83,6 +86,8 @@ pub struct ApiKeyPool {
     keys: Vec<PooledKey>,
     current: usize,
     cooldown: Duration,
+    /// Anahtar → yanıtta son görülen `x-evren-daily-remaining-tokens`.
+    daily_remaining: HashMap<String, i64>,
 }
 
 impl ApiKeyPool {
@@ -102,6 +107,32 @@ impl ApiKeyPool {
             keys: seen.into_iter().map(PooledKey::new).collect(),
             current: 0,
             cooldown: Duration::from_secs_f64(cooldown_seconds.max(0.0)),
+            daily_remaining: HashMap::new(),
+        }
+    }
+
+    /// Yanıt başlığından gelen günlük kalan token sayısını not eder.
+    pub fn record_daily_remaining(&mut self, key: &str, remaining: i64) {
+        self.daily_remaining.insert(key.to_owned(), remaining);
+    }
+
+    pub fn daily_remaining(&self, key: &str) -> Option<i64> {
+        self.daily_remaining.get(key).copied()
+    }
+
+    /// Düşük kota okuması başına tek geçiş denemesi: kaydı siler.
+    pub fn forget_daily_remaining(&mut self, key: &str) -> Option<i64> {
+        self.daily_remaining.remove(key)
+    }
+
+    /// `key`'i yapışkan geçerli anahtar yapar (ör. en çok kotası olan).
+    pub fn pin(&mut self, key: &str) -> bool {
+        match self.index_of(key) {
+            Some(i) => {
+                self.current = i;
+                true
+            }
+            None => false,
         }
     }
 
@@ -198,11 +229,11 @@ impl ApiKeyPool {
     pub fn report_success(&mut self, key: &str) {
         if let Some(i) = self.index_of(key) {
             let pk = &mut self.keys[i];
-            if pk.state != KeyState::Disabled {
-                pk.state = KeyState::Ready;
-                pk.cooldown_until = None;
-                pk.last_error = None;
-            }
+            pk.success_count += 1;
+            pk.failure_count = 0;
+            pk.state = KeyState::Ready;
+            pk.cooldown_until = None;
+            pk.last_error = None;
         }
     }
 

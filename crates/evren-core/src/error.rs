@@ -112,6 +112,23 @@ impl EvrenError {
         }
     }
 
+    /// Python istisna sınıfının adı (`type(e).__name__` karşılığı).
+    pub fn kind_name(&self) -> &'static str {
+        match self {
+            EvrenError::RateLimit { .. } => "RateLimitError",
+            EvrenError::QuotaExhausted { .. } => "QuotaExhaustedError",
+            EvrenError::Auth { .. } => "AuthError",
+            EvrenError::TermsNotAccepted { .. } => "TermsNotAcceptedError",
+            EvrenError::Server { .. } => "ServerError",
+            EvrenError::Network { .. } => "NetworkError",
+            EvrenError::Api { .. } => "APIError",
+            EvrenError::Config(_) => "ConfigError",
+            EvrenError::Io { .. } => "OSError",
+            EvrenError::Json(_) => "JSONDecodeError",
+            EvrenError::Other(_) => "Exception",
+        }
+    }
+
     pub fn io(path: impl Into<PathBuf>, source: std::io::Error) -> Self {
         EvrenError::Io {
             path: path.into(),
