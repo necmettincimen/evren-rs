@@ -1,0 +1,23 @@
+[package]
+name = "evren-cli"
+description = "EVREN CLI: AI Development & Project Assistant"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "evren"
+path = "src/main.rs"
+
+[dependencies]
+evren-core.workspace = true
+evren-api.workspace = true
+evren-protocol.workspace = true
+evren-tui.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+
+[lints]
+workspace = true
