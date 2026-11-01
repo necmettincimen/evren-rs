@@ -373,6 +373,7 @@ dependencies = [
  "evren-tui",
  "serde_json",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

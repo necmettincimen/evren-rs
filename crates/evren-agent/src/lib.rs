@@ -5,6 +5,7 @@ pub mod compaction;
 pub mod context;
 pub mod guards;
 pub mod history;
+pub mod mentions;
 pub mod modes;
 pub mod route;
 pub mod session;

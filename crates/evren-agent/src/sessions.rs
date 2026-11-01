@@ -175,10 +175,10 @@ impl AgentSession {
 
     /// Python `_mask`: JSON metni kasa ile maskelenip geri çözümlenir; hata → özgün değer.
     fn mask_value(&self, value: &Value) -> Value {
-        if self.vault.is_empty() {
+        if self.vault_lock().is_empty() {
             return value.clone();
         }
-        let masked = self.vault.mask(&dumps_py(value));
+        let masked = self.vault_lock().mask(&dumps_py(value));
         serde_json::from_str(&masked).unwrap_or_else(|_| value.clone())
     }
 

@@ -157,6 +157,16 @@ fn thousands(n: i64) -> String {
     }
 }
 
+/// `--allowed-tools a,b` → `EXTRA_ALLOW` kural listesi.
+fn split_tools(raw: Option<&str>) -> Vec<String> {
+    raw.unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 fn headless() -> bool {
     std::env::var("EVREN_HEADLESS")
         .map(|v| v == "1")
@@ -373,11 +383,20 @@ async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
     if cli.workspace.is_some() {
         std::env::set_current_dir(&workspace).map_err(|e| EvrenError::io(&workspace, e))?;
     }
+    if cli.stdio {
+        // stdout protokole ayrılır; onay/sorular başsız kipte sorulmaz.
+        std::env::set_var("EVREN_HEADLESS", "1");
+    }
     let config = Config::load();
 
     if cli.stdio {
-        let model = cli.model.clone().unwrap_or_else(|| config.default_model());
-        return stdio::serve(&config, &model, &workspace)
+        let opts = stdio::ServeOptions {
+            model: cli.model.clone(),
+            yes: cli.yes,
+            allowed_tools: split_tools(cli.allowed_tools.as_deref()),
+            continue_session: cli.continue_session,
+        };
+        return stdio::serve(&config, opts, &workspace)
             .await
             .map(|()| ExitCode::SUCCESS);
     }

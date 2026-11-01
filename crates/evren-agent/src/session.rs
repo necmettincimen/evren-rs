@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use evren_api::ApiClient;
@@ -15,7 +15,9 @@ use evren_core::models::context_window;
 use evren_core::secret_vault::SecretVault;
 use evren_core::settings::{Permission, Settings};
 use evren_core::tools::proc::StreamTag;
-use evren_core::tools::{ApprovalRequest, Approver, InfoSink, Mode, OutputSink, ToolContext};
+use evren_core::tools::{
+    ApprovalReply, ApprovalRequest, Approver, InfoSink, Mode, OutputSink, ToolContext,
+};
 use serde_json::{json, Map, Value};
 use sha1::{Digest, Sha1};
 use tokio::sync::{mpsc, oneshot};
@@ -69,7 +71,7 @@ pub enum AgentEvent {
     /// Onay sorusu; cevap `reply` ile döner (düşürülürse ret).
     ApprovalRequest {
         request: ApprovalRequest,
-        reply: oneshot::Sender<bool>,
+        reply: oneshot::Sender<ApprovalReply>,
     },
     /// `ask_user` aracı; `None` = cevapsız.
     AskUser {
@@ -140,7 +142,12 @@ pub struct AgentSession {
     pub(crate) max_steps: Option<u32>,
     pub(crate) thinking: Option<bool>,
     pub(crate) exec_profile: Option<ExecProfile>,
-    pub(crate) vault: SecretVault,
+    /// Gizli kasa; stdio sunucusu gibi dış tüketiciler maskelemek için paylaşır.
+    pub(crate) vault: Arc<Mutex<SecretVault>>,
+    /// Onay geri çağrısının izlediği iptal belirteci (`reset_cancel` ile yenilenir).
+    pub(crate) cancel_slot: Arc<Mutex<CancellationToken>>,
+    /// `--allowed-tools` ile gelen ek izin kuralları (ayar yenilemede korunur).
+    pub(crate) extra_allow: Vec<String>,
     pub(crate) listing_done: bool,
     pub(crate) guard: RepeatGuard,
     pub(crate) todos: TodoStore,
@@ -176,11 +183,12 @@ impl AgentSession {
         let git_block = git_context_block(&workspace_root, GIT_BLOCK_TIMEOUT);
         let system_prompt = compose_system(SYSTEM_PROMPT, &workspace_root, &config, &git_block);
         let auto_approve = config.auto_approve();
+        let cancel_slot = Arc::new(Mutex::new(cancel.clone()));
         let tool_ctx = Arc::new(build_tool_context(
             &workspace_root,
             &config,
             events.clone(),
-            cancel.clone(),
+            cancel_slot.clone(),
         ));
         let compactor = HistoryCompactor::new(
             config.smart_compact_enabled(),
@@ -207,7 +215,9 @@ impl AgentSession {
             max_steps: None,
             thinking: None,
             exec_profile: None,
-            vault: SecretVault::new(),
+            vault: Arc::new(Mutex::new(SecretVault::new())),
+            cancel_slot,
+            extra_allow: Vec::new(),
             listing_done: false,
             guard: RepeatGuard::new(),
             todos: TodoStore::new(),
@@ -269,8 +279,40 @@ impl AgentSession {
         &self.todos
     }
 
-    pub fn vault_mut(&mut self) -> &mut SecretVault {
-        &mut self.vault
+    /// Paylaşımlı gizli kasa (maskeleme için).
+    pub fn vault(&self) -> Arc<Mutex<SecretVault>> {
+        self.vault.clone()
+    }
+
+    pub(crate) fn vault_lock(&self) -> MutexGuard<'_, SecretVault> {
+        lock_vault(&self.vault)
+    }
+
+    /// İptal edilmiş belirteci yeniler (stdio `cancel` sonrası yeni tur);
+    /// geçerli belirteci döndürür.
+    pub fn reset_cancel(&mut self) -> CancellationToken {
+        if self.cancel.is_cancelled() {
+            self.cancel = CancellationToken::new();
+            if let Ok(mut slot) = self.cancel_slot.lock() {
+                *slot = self.cancel.clone();
+            }
+        }
+        self.cancel.clone()
+    }
+
+    /// `EXTRA_ALLOW` (`--allowed-tools`): izin kurallarına eklenir.
+    pub fn set_extra_allow(&mut self, rules: Vec<String>) {
+        self.extra_allow = rules;
+        self.reload_settings();
+    }
+
+    /// Ayar dosyalarını yeniden okur (`always` kararından sonra).
+    pub fn reload_settings(&mut self) {
+        let mut settings = Settings::load(Some(&self.workspace_root));
+        settings
+            .extra_allow
+            .extend(self.extra_allow.iter().cloned());
+        self.settings = settings;
     }
 
     pub fn cancel_token(&self) -> CancellationToken {
@@ -323,8 +365,8 @@ impl AgentSession {
         self.task_goal.clear();
         self.thinking = None;
         self.exec_profile = None;
-        self.vault = SecretVault::new();
-        self.settings = Settings::load(Some(&self.workspace_root));
+        *self.vault_lock() = SecretVault::new();
+        self.reload_settings();
     }
 
     // ------------------------------------------------------------ olaylar
@@ -625,7 +667,10 @@ impl AgentSession {
                 "ayar dosyasındaki izin kuralı bu aracı engelliyor (permissions.deny).".into(),
             );
         }
-        if let Some(reason) = self.settings.run_pre_tool(fn_name, args_map, &self.vault) {
+        if let Some(reason) = self
+            .settings
+            .run_pre_tool(fn_name, args_map, &self.vault_lock())
+        {
             return (false, format!("pre_tool hook engelledi: {reason}"));
         }
         (verdict == Some(Permission::Allow), String::new())
@@ -633,8 +678,11 @@ impl AgentSession {
 
     pub(crate) fn run_post_tool(&self, fn_name: &str, args: &Value) {
         let empty = Map::new();
-        self.settings
-            .run_post_tool(fn_name, args.as_object().unwrap_or(&empty), &self.vault);
+        self.settings.run_post_tool(
+            fn_name,
+            args.as_object().unwrap_or(&empty),
+            &self.vault_lock(),
+        );
     }
 
     // ------------------------------------------------------------ kullanım
@@ -923,7 +971,7 @@ fn build_tool_context(
     root: &Path,
     config: &Config,
     events: EventSender,
-    cancel: CancellationToken,
+    cancel_slot: Arc<Mutex<CancellationToken>>,
 ) -> ToolContext {
     let approve_events = events.clone();
     let approver: Approver = Box::new(move |req: &ApprovalRequest| {
@@ -935,9 +983,13 @@ fn build_tool_context(
             })
             .is_err()
         {
-            return false;
+            return ApprovalReply::deny();
         }
-        wait_blocking(&cancel, rx).unwrap_or(false)
+        let cancel = cancel_slot
+            .lock()
+            .map(|t| t.clone())
+            .unwrap_or_else(|p| p.into_inner().clone());
+        wait_blocking(&cancel, rx).unwrap_or_else(ApprovalReply::deny)
     });
     let out_events = events.clone();
     let output: OutputSink = Box::new(move |stream, line| {
@@ -953,6 +1005,11 @@ fn build_tool_context(
         .with_approver(approver)
         .with_output(output)
         .with_info(info)
+}
+
+/// Zehirlenmiş kilidi de açar: kasa yalnız veri taşır.
+pub(crate) fn lock_vault(vault: &Arc<Mutex<SecretVault>>) -> MutexGuard<'_, SecretVault> {
+    vault.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Engelleyici iş parçacığından (spawn_blocking) bir oneshot cevabını iptale duyarlı bekler.

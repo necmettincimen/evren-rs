@@ -705,7 +705,7 @@ impl ApiClient {
         mut on_delta: F,
     ) -> Result<ChatResponse, EvrenError>
     where
-        F: FnMut(StreamDelta),
+        F: FnMut(StreamDelta) + Send,
     {
         let mut body = self.build_body(&req);
         body.insert("stream".into(), Value::Bool(true));
@@ -818,7 +818,7 @@ impl ApiClient {
         key: &str,
         idle: Duration,
         asm: &mut StreamAssembler,
-        on_delta: &mut dyn FnMut(StreamDelta),
+        on_delta: &mut (dyn FnMut(StreamDelta) + Send),
     ) -> Result<(), EvrenError> {
         let resp = self
             .request(reqwest::Method::POST, "/chat/completions", key)

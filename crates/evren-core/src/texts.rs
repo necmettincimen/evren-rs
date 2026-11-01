@@ -128,3 +128,37 @@ pub fn confirm_no_input(default_yes: bool) -> String {
     let d = if default_yes { "evet" } else { "hayır" };
     format!("(girdi yok, varsayılan: {d})")
 }
+
+// stdio_server (Faz 2c)
+pub const STDIO_INVALID_DECISION: &str = "decision şunlardan biri olmalı: allow, deny, always";
+pub const STDIO_UNKNOWN_APPROVAL: &str = "Bekleyen böyle bir onay yok.";
+pub const STDIO_UNKNOWN_QUESTION: &str = "Bekleyen böyle bir soru yok.";
+pub const STDIO_MODEL_EMPTY: &str = "Model adı boş.";
+pub const STDIO_INVALID_MODE: &str = "Kip: normal | plan | ask";
+pub fn stdio_unknown_session(sid: &str) -> String {
+    format!("Oturum yok: {sid}")
+}
+pub fn stdio_session_unreadable(sid: &str) -> String {
+    format!("Oturum okunamadı: {sid}")
+}
+pub fn stdio_unsupported_slash(command: &str) -> String {
+    format!("/{command} stdio kipinde desteklenmiyor.")
+}
+
+// extras.expand_mentions
+pub const MENTION_ATTACHED_HEADER: &str = "[Eklenen dosyalar]";
+pub fn mention_line_limit_note(limit: usize) -> String {
+    format!("\n... [{limit} satır sınırı]")
+}
+pub fn mention_image(rel: &str) -> String {
+    format!("[@{rel}] görsel dosya: içeriği için view_file aracını kullan.")
+}
+pub fn mention_not_found(rel: &str) -> String {
+    format!("@{rel} bulunamadı.")
+}
+pub fn mention_unreadable(rel: &str, e: &dyn std::fmt::Display) -> String {
+    format!("@{rel} okunamadı: {e}")
+}
+pub fn mention_block_header(rel: &str, first: usize, last: usize) -> String {
+    format!("[@{rel} satır {first}-{last}]")
+}

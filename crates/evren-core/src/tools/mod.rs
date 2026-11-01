@@ -64,8 +64,38 @@ pub struct ApprovalRequest {
     pub warning: Option<String>,
 }
 
+/// Onay cevabı: karar ve (edit/write için) kullanıcının düzenlediği içerik
+/// (Python `confirm_action`: `decision in (allow, always)` + `edited_content`).
+#[derive(Debug, Clone, Default)]
+pub struct ApprovalReply {
+    pub approved: bool,
+    pub edited_content: Option<String>,
+}
+
+impl ApprovalReply {
+    pub fn allow() -> Self {
+        ApprovalReply {
+            approved: true,
+            edited_content: None,
+        }
+    }
+
+    pub fn deny() -> Self {
+        ApprovalReply::default()
+    }
+}
+
+impl From<bool> for ApprovalReply {
+    fn from(approved: bool) -> Self {
+        ApprovalReply {
+            approved,
+            edited_content: None,
+        }
+    }
+}
+
 /// Onay cevabı veren geri çağrı.
-pub type Approver = Box<dyn Fn(&ApprovalRequest) -> bool + Send + Sync>;
+pub type Approver = Box<dyn Fn(&ApprovalRequest) -> ApprovalReply + Send + Sync>;
 /// Canlı komut çıktısı alıcısı.
 pub type OutputSink = Box<dyn Fn(StreamTag, &str) + Send + Sync>;
 /// Bilgi/diff satırı alıcısı (`print_info`, `print_diff`).
@@ -154,20 +184,32 @@ impl ToolContext {
 
     /// Onay kapısı: onaylandıysa `None`, aksi halde modele dönecek ret metni.
     pub fn request_approval(&self, auto_approve: bool, req: ApprovalRequest) -> Option<String> {
+        self.request_approval_full(auto_approve, req).err()
+    }
+
+    /// Onay kapısı (tam cevap): onaylandıysa `Ok(düzenlenmiş içerik)`,
+    /// reddedildiyse `Err(ret metni)`. Otomatik onayda ya da onay geri
+    /// çağrısı yokken `Ok(None)`.
+    pub fn request_approval_full(
+        &self,
+        auto_approve: bool,
+        req: ApprovalRequest,
+    ) -> Result<Option<String>, String> {
         if auto_approve || self.auto_approve {
-            return None;
+            return Ok(None);
         }
         let Some(approver) = &self.approver else {
-            return None;
+            return Ok(None);
         };
         if let Some(w) = &req.warning {
             self.emit_info(w);
         }
         let deny = deny_text(req.kind);
-        if approver(&req) {
-            None
+        let reply = approver(&req);
+        if reply.approved {
+            Ok(reply.edited_content)
         } else {
-            Some(deny.to_string())
+            Err(deny.to_string())
         }
     }
 }

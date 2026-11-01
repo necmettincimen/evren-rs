@@ -145,7 +145,7 @@ impl AgentSession {
             return "HATA: max_steps en az 1 olmalıdır.".to_string();
         }
         let (turn_mode, cleaned) = parse_mode_prefix(user_input);
-        let cleaned = self.vault.capture(&cleaned);
+        let cleaned = self.vault_lock().capture(&cleaned);
         let mode = turn_mode.unwrap_or(self.mode);
         self.pending_mode = None;
         self.interrupted = false;
@@ -169,7 +169,7 @@ impl AgentSession {
         self.reads.clear();
 
         let mut prompt = cleaned.clone();
-        for block in [domain_hints(&cleaned), self.vault.usage_note()] {
+        for block in [domain_hints(&cleaned), self.vault_lock().usage_note()] {
             if block.is_empty() || sent_before.contains(&block) {
                 continue;
             }
@@ -232,7 +232,7 @@ impl AgentSession {
             self.warning(error.clone());
             return error;
         }
-        let text = self.vault.capture(text);
+        let text = self.vault_lock().capture(text);
         let goal = self.task_goal.clone();
         let mode = self.mode;
         self.mode = self.pending_mode.unwrap_or(self.mode);
@@ -261,7 +261,7 @@ impl AgentSession {
     // ------------------------------------------------------------ iz
 
     fn trace_task_begin(&mut self, text: &str, mode: Mode) {
-        let vault = self.vault.clone();
+        let vault = self.vault_lock().clone();
         let mut writer = TaskTrace::new(&self.workspace_root, self.config.trace_enabled())
             .with_masker(Arc::new(move |t: &str| vault.mask(t)));
         writer.start(&self.model, mode.as_str(), text);
@@ -1086,7 +1086,7 @@ impl AgentSession {
             mode = Mode::Normal;
             self.info("Kullanıcı onayladı: plan modundan normal moda geçildi.");
         }
-        result = self.vault.mask(&result);
+        result = self.vault_lock().mask(&result);
         result = self.guard.after_tool(&fn_name, &args, &result);
         self.note_read(&fn_name, &args, &result, &call_id);
         if result.contains("[EVREN] Tam çıktı (") && is_listing_task(&self.task_goal) {
@@ -1114,10 +1114,10 @@ impl AgentSession {
 
     /// Olaylara giden argümanlar: sır değerleri maskelenir.
     fn masked_args(&self, args: &Value) -> Value {
-        if self.vault.is_empty() {
+        if self.vault_lock().is_empty() {
             return args.clone();
         }
-        let masked = self.vault.mask(&args.to_string());
+        let masked = self.vault_lock().mask(&args.to_string());
         serde_json::from_str(&masked).unwrap_or_else(|_| args.clone())
     }
 }

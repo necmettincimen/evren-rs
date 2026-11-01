@@ -293,8 +293,8 @@ fn approval_refusal_blocks_edit() {
     let mut env = BTreeMap::new();
     env.insert("EVREN_AUTO_APPROVE".to_string(), "false".to_string());
     env.insert("EVREN_SHELL".to_string(), "cmd".to_string());
-    let ctx =
-        ToolContext::new(ws.path(), &Config::from_env(env)).with_approver(Box::new(|_| false));
+    let ctx = ToolContext::new(ws.path(), &Config::from_env(env))
+        .with_approver(Box::new(|_| false.into()));
     let res = execute_tool_call(
         &ctx,
         "edit_file",
@@ -694,8 +694,8 @@ fn background_keeps_path_and_requires_approval() {
     let mut env = BTreeMap::new();
     env.insert("EVREN_AUTO_APPROVE".to_string(), "false".to_string());
     env.insert("EVREN_SHELL".to_string(), "cmd".to_string());
-    let deny =
-        ToolContext::new(ws.path(), &Config::from_env(env)).with_approver(Box::new(|_| false));
+    let deny = ToolContext::new(ws.path(), &Config::from_env(env))
+        .with_approver(Box::new(|_| false.into()));
     let refused = execute_tool_call(
         &deny,
         "run_command",

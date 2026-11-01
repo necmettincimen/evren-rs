@@ -300,11 +300,12 @@ pub fn tool_edit_file(ctx: &ToolContext, args: EditArgs<'_>) -> String {
         old: old.clone(),
         new: new_content.clone(),
     };
-    if let Some(denied) =
-        ctx.request_approval(args.auto_approve, edit_request(path, Some(proposal)))
-    {
-        return denied;
-    }
+    let new_content =
+        match ctx.request_approval_full(args.auto_approve, edit_request(path, Some(proposal))) {
+            Err(denied) => return denied,
+            Ok(Some(edited)) => edited,
+            Ok(None) => new_content,
+        };
     let backup = match write_changed_lines(path, &old, &new_content, root, Some(&meta)) {
         Ok(b) => b,
         Err((_, err)) => return format!("HATA: Dosya kaydedilemedi: {err}"),
@@ -380,11 +381,13 @@ pub fn tool_write_file(
         old: old_text,
         new: content.clone(),
     };
-    if let Some(denied) =
-        ctx.request_approval(auto_approve, write_request(path, action, Some(proposal)))
+    let content = match ctx
+        .request_approval_full(auto_approve, write_request(path, action, Some(proposal)))
     {
-        return denied;
-    }
+        Err(denied) => return denied,
+        Ok(Some(edited)) => edited,
+        Ok(None) => content,
+    };
     let backup = match safe_write_file(path, &content, root, None, None) {
         Ok(b) => b,
         Err((_, err)) => return format!("HATA: Dosya yazılamadı: {err}"),
