@@ -4,9 +4,11 @@
 pub mod compaction;
 pub mod context;
 pub mod guards;
+pub mod history;
 pub mod modes;
 pub mod route;
 pub mod session;
+pub mod sessions;
 pub mod todos;
 pub mod token_manager;
 pub mod trace;

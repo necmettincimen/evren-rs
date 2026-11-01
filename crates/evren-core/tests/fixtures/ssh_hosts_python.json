@@ -1,0 +1,18 @@
+{
+  "koyu3": {
+    "host": "10.0.0.3",
+    "user": "root",
+    "port": 22,
+    "identity_file": "~/.ssh/id_ed25519",
+    "description": "üretim sunucusu",
+    "allow_write": true
+  },
+  "lab": {
+    "host": "lab.example.com",
+    "user": "",
+    "port": 22,
+    "identity_file": "",
+    "description": "",
+    "allow_write": false
+  }
+}

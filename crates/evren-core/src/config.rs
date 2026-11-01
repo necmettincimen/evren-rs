@@ -659,6 +659,11 @@ pub fn get_backup_dir(workspace_root: &Path) -> PathBuf {
     get_evren_dir(workspace_root).join("backups")
 }
 
+/// `<ws>/.evren/tmp` (yapıştırma ve SSH geçici dosyaları).
+pub fn get_tmp_dir(workspace_root: &Path) -> PathBuf {
+    get_evren_dir(workspace_root).join("tmp")
+}
+
 /// `.evren`, `backups`, `logs` dizinlerini açar; `.evren/.gitignore`
 /// eksik satırlarla tamamlanır (var olan satırlar silinmez).
 pub fn ensure_evren_dirs(workspace_root: &Path) -> Result<PathBuf, EvrenError> {

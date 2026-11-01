@@ -154,6 +154,8 @@ pub struct AgentSession {
     pub(crate) task_start: Option<Instant>,
     pub(crate) task_usage_base: i64,
     pub(crate) todo_mark: u32,
+    /// Kayıtlı oturum dosyası damgası (`YYYYMMDD-HHMMSS`); bir kez üretilir.
+    pub(crate) session_stamp: Option<String>,
     pub(crate) settings: Settings,
     pub(crate) events: EventSender,
     pub(crate) cancel: CancellationToken,
@@ -219,6 +221,7 @@ impl AgentSession {
             task_start: None,
             task_usage_base: 0,
             todo_mark: 0,
+            session_stamp: None,
             settings,
             config,
             workspace_root,

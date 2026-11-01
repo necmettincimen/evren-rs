@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "sections": {
+    "architecture": {
+      "hash": "abc",
+      "updated": "2026-01-01T12:00:00",
+      "note": "çş"
+    }
+  },
+  "extra": [
+    1,
+    2
+  ]
+}
