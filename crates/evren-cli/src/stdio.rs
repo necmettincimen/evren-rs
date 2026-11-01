@@ -492,6 +492,12 @@ impl Server {
         if self.busy_error(cid).await {
             return;
         }
+        // Python: yeni oturum fabrikadan gelir; model CLI'daki (ya da varsayılan) modele döner.
+        self.model = self
+            .opts
+            .model
+            .clone()
+            .unwrap_or_else(|| self.config.default_model());
         let session = self.new_session();
         self.install_session(session);
         let ev = self
