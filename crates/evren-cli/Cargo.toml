@@ -14,6 +14,7 @@ evren-core.workspace = true
 evren-api.workspace = true
 evren-protocol.workspace = true
 evren-tui.workspace = true
+evren-agent.workspace = true
 clap.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

@@ -14,6 +14,7 @@ evren-core = { path = "crates/evren-core" }
 evren-api = { path = "crates/evren-api" }
 evren-protocol = { path = "crates/evren-protocol" }
 evren-tui = { path = "crates/evren-tui" }
+evren-agent = { path = "crates/evren-agent" }
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "signal", "sync", "time", "fs"] }
 tokio-util = { version = "0.7", features = ["rt"] }
@@ -27,6 +28,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 regex = "1"
+fancy-regex = "0.14"
+sha1 = "0.10"
+uuid = { version = "1", features = ["v4"] }
 dirs = "6"
 chrono = { version = "0.4", features = ["serde"] }
 futures-util = "0.3"
