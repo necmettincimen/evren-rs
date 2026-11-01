@@ -14,6 +14,7 @@ use evren_core::config::{get_workspace_dir, Config};
 use evren_core::{models, texts, EvrenError};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+mod headless;
 mod stdio;
 
 #[derive(Parser, Debug)]
@@ -383,8 +384,9 @@ async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
     if cli.workspace.is_some() {
         std::env::set_current_dir(&workspace).map_err(|e| EvrenError::io(&workspace, e))?;
     }
-    if cli.stdio {
-        // stdout protokole ayrılır; onay/sorular başsız kipte sorulmaz.
+    let headless_run = cli.stdio || (cli.print_prompt.is_some() && cli.command.is_none());
+    if headless_run {
+        // stdout protokole/sonuca ayrılır; onay/sorular başsız kipte sorulmaz.
         std::env::set_var("EVREN_HEADLESS", "1");
     }
     let config = Config::load();
@@ -400,8 +402,17 @@ async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
             .await
             .map(|()| ExitCode::SUCCESS);
     }
-    if cli.print_prompt.is_some() {
-        return Ok(not_ported());
+    if let (Some(prompt), None) = (cli.print_prompt.clone(), cli.command.as_ref()) {
+        let opts = headless::HeadlessOptions {
+            prompt,
+            model: cli.model.clone(),
+            json: cli.output == "json",
+            max_steps: cli.max_steps,
+            yes: cli.yes,
+            allowed_tools: split_tools(cli.allowed_tools.as_deref()),
+            continue_session: cli.continue_session,
+        };
+        return headless::run(&config, opts, &workspace).await;
     }
     match cli.command {
         Some(Command::Models) => cmd_models(&config).await.map(|()| ExitCode::SUCCESS),

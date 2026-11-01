@@ -744,19 +744,19 @@ fn as_int(v: &Value) -> Option<i64> {
 }
 
 /// Python `_is_evren_file`.
-fn is_evren_file(path: &str) -> bool {
+pub(crate) fn is_evren_file(path: &str) -> bool {
     let p = path.trim_matches('"').replace('\\', "/");
     p.starts_with(".evren/") || EVREN_FILES.contains(&p.as_str())
 }
 
 /// `git status --short` satırından yol: `ln[3:].strip()`.
-fn status_path(line: &str) -> String {
+pub(crate) fn status_path(line: &str) -> String {
     line.chars().skip(3).collect::<String>().trim().to_string()
 }
 
 /// Python `_status_lines`: `git status --short --untracked-files=all` satırları;
 /// hata durumunda stdout+stderr (Python `_git` dönüş kodunu yoksayar), çalışmazsa boş.
-async fn status_lines(workspace: &Path) -> Vec<String> {
+pub(crate) async fn status_lines(workspace: &Path) -> Vec<String> {
     let run = tokio::process::Command::new("git")
         .args(["status", "--short", "--untracked-files=all"])
         .current_dir(workspace)
