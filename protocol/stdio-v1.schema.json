@@ -1,0 +1,931 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/necmettincimen/evren-cli/master/protocol/stdio-v1.schema.json",
+  "title": "evren --stdio protokolü v1",
+  "description": "NDJSON: her satır bir komut (istemci → CLI) ya da olay (CLI → istemci). Bilinmeyen alanlar yok sayılır; alan eklemek uyumlu değişikliktir, kaldırmak/anlam değiştirmek v artışı gerektirir. Ayrıntı: docs/stdio-protocol.md",
+  "x-protocol-version": 1,
+  "x-min-cli-version": "3.10.0",
+  "x-command-types": [
+    "prompt",
+    "cancel",
+    "approval_response",
+    "ask_user_response",
+    "set_model",
+    "set_mode",
+    "list_sessions",
+    "resume",
+    "new_session",
+    "list_models",
+    "quota",
+    "slash"
+  ],
+  "x-event-types": [
+    "ready",
+    "turn_start",
+    "assistant_delta",
+    "reasoning_delta",
+    "tool_call",
+    "tool_result",
+    "file_change_proposed",
+    "approval_request",
+    "ask_user",
+    "todos",
+    "usage",
+    "turn_end",
+    "error",
+    "model_changed",
+    "mode_changed",
+    "sessions",
+    "session_loaded",
+    "models",
+    "quota"
+  ],
+  "x-error-codes": [
+    "invalid_json",
+    "invalid_message",
+    "unsupported_version",
+    "unknown_command",
+    "busy",
+    "empty_prompt",
+    "invalid_decision",
+    "unknown_request",
+    "invalid_mode",
+    "invalid_model",
+    "unknown_session",
+    "unsupported_slash",
+    "mention",
+    "quota",
+    "internal"
+  ],
+  "$defs": {
+    "error_code": {
+      "enum": [
+        "invalid_json",
+        "invalid_message",
+        "unsupported_version",
+        "unknown_command",
+        "busy",
+        "empty_prompt",
+        "invalid_decision",
+        "unknown_request",
+        "invalid_mode",
+        "invalid_model",
+        "unknown_session",
+        "unsupported_slash",
+        "mention",
+        "quota",
+        "internal"
+      ]
+    },
+    "command_envelope": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "type"
+      ]
+    },
+    "event_envelope": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^s[0-9]+$"
+        },
+        "reply_to": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id"
+      ]
+    },
+    "command": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/command_envelope"
+        }
+      ],
+      "oneOf": [
+        {
+          "$ref": "#/$defs/cmd_prompt"
+        },
+        {
+          "$ref": "#/$defs/cmd_cancel"
+        },
+        {
+          "$ref": "#/$defs/cmd_approval_response"
+        },
+        {
+          "$ref": "#/$defs/cmd_ask_user_response"
+        },
+        {
+          "$ref": "#/$defs/cmd_set_model"
+        },
+        {
+          "$ref": "#/$defs/cmd_set_mode"
+        },
+        {
+          "$ref": "#/$defs/cmd_list_sessions"
+        },
+        {
+          "$ref": "#/$defs/cmd_resume"
+        },
+        {
+          "$ref": "#/$defs/cmd_new_session"
+        },
+        {
+          "$ref": "#/$defs/cmd_list_models"
+        },
+        {
+          "$ref": "#/$defs/cmd_quota"
+        },
+        {
+          "$ref": "#/$defs/cmd_slash"
+        }
+      ]
+    },
+    "event": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/event_envelope"
+        }
+      ],
+      "oneOf": [
+        {
+          "$ref": "#/$defs/evt_ready"
+        },
+        {
+          "$ref": "#/$defs/evt_turn_start"
+        },
+        {
+          "$ref": "#/$defs/evt_assistant_delta"
+        },
+        {
+          "$ref": "#/$defs/evt_reasoning_delta"
+        },
+        {
+          "$ref": "#/$defs/evt_tool_call"
+        },
+        {
+          "$ref": "#/$defs/evt_tool_result"
+        },
+        {
+          "$ref": "#/$defs/evt_file_change_proposed"
+        },
+        {
+          "$ref": "#/$defs/evt_approval_request"
+        },
+        {
+          "$ref": "#/$defs/evt_ask_user"
+        },
+        {
+          "$ref": "#/$defs/evt_todos"
+        },
+        {
+          "$ref": "#/$defs/evt_usage"
+        },
+        {
+          "$ref": "#/$defs/evt_turn_end"
+        },
+        {
+          "$ref": "#/$defs/evt_error"
+        },
+        {
+          "$ref": "#/$defs/evt_model_changed"
+        },
+        {
+          "$ref": "#/$defs/evt_mode_changed"
+        },
+        {
+          "$ref": "#/$defs/evt_sessions"
+        },
+        {
+          "$ref": "#/$defs/evt_session_loaded"
+        },
+        {
+          "$ref": "#/$defs/evt_models"
+        },
+        {
+          "$ref": "#/$defs/evt_quota"
+        }
+      ]
+    },
+    "cmd_prompt": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "prompt"
+        },
+        "text": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "normal",
+            "plan",
+            "ask"
+          ]
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "range": {
+                "type": "object",
+                "properties": {
+                  "start": {
+                    "type": "integer"
+                  },
+                  "end": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "start",
+                  "end"
+                ]
+              }
+            },
+            "required": [
+              "path"
+            ]
+          }
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ]
+    },
+    "cmd_cancel": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "cancel"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    "cmd_approval_response": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "approval_response"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "allow",
+            "deny",
+            "always"
+          ]
+        },
+        "edited_content": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "request_id",
+        "decision"
+      ]
+    },
+    "cmd_ask_user_response": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "ask_user_response"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "answer": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "request_id",
+        "answer"
+      ]
+    },
+    "cmd_set_model": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "set_model"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "model"
+      ]
+    },
+    "cmd_set_mode": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "set_mode"
+        },
+        "mode": {
+          "enum": [
+            "normal",
+            "plan",
+            "ask"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "mode"
+      ]
+    },
+    "cmd_list_sessions": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "list_sessions"
+        },
+        "limit": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    "cmd_resume": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "resume"
+        },
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "session_id"
+      ]
+    },
+    "cmd_new_session": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "new_session"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    "cmd_list_models": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "list_models"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    "cmd_quota": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "quota"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    "cmd_slash": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "slash"
+        },
+        "command": {
+          "type": "string"
+        },
+        "args": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "command"
+      ]
+    },
+    "evt_ready": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "ready"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "workspace": {
+          "type": "string"
+        },
+        "protocol": {
+          "const": 1
+        }
+      },
+      "required": [
+        "type",
+        "version",
+        "model",
+        "workspace",
+        "protocol"
+      ]
+    },
+    "evt_turn_start": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "turn_start"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    "evt_assistant_delta": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "assistant_delta"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ]
+    },
+    "evt_reasoning_delta": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "reasoning_delta"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ]
+    },
+    "evt_tool_call": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "tool_call"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "args": {}
+      },
+      "required": [
+        "type",
+        "call_id",
+        "name",
+        "args"
+      ]
+    },
+    "evt_tool_result": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "tool_result"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 8192
+        },
+        "output_truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "call_id",
+        "ok",
+        "summary",
+        "output_truncated"
+      ]
+    },
+    "evt_file_change_proposed": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "file_change_proposed"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "old_content": {
+          "type": "string"
+        },
+        "new_content": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "request_id",
+        "path",
+        "old_content",
+        "new_content"
+      ]
+    },
+    "evt_approval_request": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "approval_request"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "edit",
+            "command",
+            "ssh",
+            "other"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "request_id",
+        "kind",
+        "title",
+        "detail"
+      ]
+    },
+    "evt_ask_user": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "ask_user"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "question": {
+          "type": "string"
+        },
+        "options": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "request_id",
+        "question"
+      ]
+    },
+    "evt_todos": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "todos"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "content": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "content",
+              "status"
+            ]
+          }
+        }
+      },
+      "required": [
+        "type",
+        "items"
+      ]
+    },
+    "evt_usage": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "usage"
+        },
+        "prompt_tokens": {
+          "type": "integer"
+        },
+        "completion_tokens": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "prompt_tokens",
+        "completion_tokens"
+      ]
+    },
+    "evt_turn_end": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "turn_end"
+        },
+        "result": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "changed_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exit_code": {
+          "enum": [
+            0,
+            1
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "result",
+        "changed_files",
+        "exit_code"
+      ]
+    },
+    "evt_error": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "error"
+        },
+        "message": {
+          "type": "string"
+        },
+        "code": {
+          "$ref": "#/$defs/error_code"
+        }
+      },
+      "required": [
+        "type",
+        "message",
+        "code"
+      ]
+    },
+    "evt_model_changed": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "model_changed"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "model"
+      ]
+    },
+    "evt_mode_changed": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "mode_changed"
+        },
+        "mode": {
+          "enum": [
+            "normal",
+            "plan",
+            "ask"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "mode"
+      ]
+    },
+    "evt_sessions": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "sessions"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "session_id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "model": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "mode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "session_id"
+            ]
+          }
+        }
+      },
+      "required": [
+        "type",
+        "items"
+      ]
+    },
+    "evt_session_loaded": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "session_loaded"
+        },
+        "session_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "enum": [
+                  "user",
+                  "assistant"
+                ]
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "text"
+            ]
+          }
+        }
+      },
+      "required": [
+        "type",
+        "session_id",
+        "messages"
+      ]
+    },
+    "evt_models": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "models"
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "current": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "models",
+        "current"
+      ]
+    },
+    "evt_quota": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "quota"
+        },
+        "quota": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "type",
+        "quota"
+      ]
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/command"
+    },
+    {
+      "$ref": "#/$defs/event"
+    }
+  ]
+}

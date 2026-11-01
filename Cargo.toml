@@ -1,0 +1,46 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "4.0.0-dev"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/necmettincimen/evren-rs"
+rust-version = "1.80"
+
+[workspace.dependencies]
+evren-core = { path = "crates/evren-core" }
+evren-api = { path = "crates/evren-api" }
+evren-protocol = { path = "crates/evren-protocol" }
+evren-tui = { path = "crates/evren-tui" }
+
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "signal", "sync", "time", "fs"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+clap = { version = "4", features = ["derive", "wrap_help"] }
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+regex = "1"
+dirs = "6"
+chrono = { version = "0.4", features = ["serde"] }
+futures-util = "0.3"
+bytes = "1"
+tempfile = "3"
+jsonschema = "0.28"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

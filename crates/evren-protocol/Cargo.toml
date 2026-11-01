@@ -1,0 +1,13 @@
+[package]
+name = "evren-protocol"
+description = "evren --stdio NDJSON protokolü (v1) tipleri"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

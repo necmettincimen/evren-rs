@@ -1,0 +1,6 @@
+/target/
+**/*.rs.bk
+.evren/
+.env
+.env.*
+*.pdb
