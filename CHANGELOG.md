@@ -28,8 +28,11 @@ sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kura
   `/commit`, `/review`, `/init`, `/files`, `/add`, `/drop`, `/scan`, `/run`, `/memory`,
   `/language`, `/resume`, `/keys`, `/debug` ve `.evren/commands/*.md` özel komutları;
   `/clear` checkpoint'i siler.
+- Yapıldı: prompt çerçevesi. `evren chat` ve `evren agent` `--rol/--cerceve/--brief/--kisit/--cikti`
+  bayraklarını alır; bayrak ve istek yoksa uçbirimde beş satır sorulur. REPL'de Brief
+  netleştirme ve boş alan önerileri (`EVREN_CLARIFY_ROUNDS`, `EVREN_FRAME_SUGGEST`,
+  `EVREN_FORM_FIELDS`). `evren agent` tek seferlik görev olarak çalışır.
 - Kalan: `/docs`, `/skills` ve Faz 4 komutları.
-- REPL prompt çerçevesi (`--rol/--cerceve/--brief/--kisit/--cikti`, form akışı).
 - `agent.md` yönetilen blokları, `plan_runner`, SSH araçları, skills, memory, `web_fetch`.
 - TOML rol dosyaları (bu sürümde yalnız JSON).
 - Kurulum dışındaki Faz 4/5 işleri: `vision_search`, MCP istemcisi, terminal kurulumu,

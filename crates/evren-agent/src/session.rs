@@ -25,9 +25,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::compaction::{truncate_tool_content, HistoryCompactor};
 use crate::context::{compose_system, git_context_block, SYSTEM_PROMPT};
-use crate::roles::RoleProfile;
 use crate::guards::{RepeatGuard, TASK_NOISE_PREFIXES};
 use crate::prompt_frame::{self, PromptFrame};
+use crate::roles::RoleProfile;
 use crate::route::ExecProfile;
 use crate::todos::TodoStore;
 use crate::token_manager::TokenManager;
@@ -258,9 +258,13 @@ impl AgentSession {
     /// Temel sistem istemi: SYSTEM_PROMPT + (varsa) rol bloğu.
     fn base_prompt(&self) -> String {
         match &self.role {
-            Some(role) => format!("{}
+            Some(role) => format!(
+                "{}
 
-{}", SYSTEM_PROMPT.trim_end(), role.prompt_block()),
+{}",
+                SYSTEM_PROMPT.trim_end(),
+                role.prompt_block()
+            ),
             None => SYSTEM_PROMPT.to_string(),
         }
     }
@@ -270,8 +274,10 @@ impl AgentSession {
         if profile.max_steps.is_some() {
             self.max_steps = profile.max_steps;
         }
-        self.guard
-            .set_role_limits(Some((profile.repeat_block, profile.repeat_stuck)), &profile.report);
+        self.guard.set_role_limits(
+            Some((profile.repeat_block, profile.repeat_stuck)),
+            &profile.report,
+        );
         self.role = Some(profile);
         self.refresh_context();
     }
@@ -1325,5 +1331,57 @@ mod tests {
             AgentSession::read_key(&json!({"path": "a"})),
             AgentSession::read_key(&json!({"path": "a", "start_line": 1}))
         );
+    }
+
+    // --- tests/test_prompt_frame.py TestAgentFrame ---
+
+    fn frame_session(ws: &Path) -> AgentSession {
+        let mut env = std::collections::BTreeMap::new();
+        env.insert("EVREN_API_KEY".to_string(), "sk-test-dummy".to_string());
+        env.insert("EVREN_DEFAULT_MODEL".to_string(), "fake-model".to_string());
+        let config = Config::from_env(env);
+        let client = Arc::new(ApiClient::new(&config).unwrap());
+        let (tx, _rx) = mpsc::unbounded_channel();
+        AgentSession::new(client, config, ws, tx, CancellationToken::new())
+    }
+
+    fn system_text(s: &AgentSession) -> String {
+        s.messages()[0]["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_string()
+    }
+
+    #[test]
+    fn apply_frame_merges_identity_and_keeps_base() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = frame_session(dir.path());
+        let base = s.base_prompt();
+        s.apply_frame(&PromptFrame::new("kimlik", "", "ilk", "", ""), "", false);
+        let system = system_text(&s);
+        assert!(system.contains(base.trim_end()));
+        assert!(system.contains("Rol: kimlik"));
+        assert!(!system.contains("Brief"));
+
+        let user = s.apply_frame(&PromptFrame::new("", "kalıp", "", "ölçek", ""), "", false);
+        let system = system_text(&s);
+        assert!(system.contains("Rol: kimlik"));
+        assert!(system.contains("Çerçeve: kalıp"));
+        assert_eq!(system.matches("GÖREV KALIBI").count(), 1);
+        assert!(user.contains("Kısıt: ölçek"));
+        assert!(!user.contains("Brief"));
+    }
+
+    #[test]
+    fn clear_history_drops_the_frame() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = frame_session(dir.path());
+        s.apply_frame(&PromptFrame::new("kimlik", "", "iş", "", ""), "", false);
+        s.clear_history();
+        let system = system_text(&s);
+        assert!(system.contains(s.base_prompt().trim_end()));
+        assert!(system.contains("YEREL ÇALIŞTIRMA BAĞLAMI"));
+        assert!(!system.contains("GÖREV KALIBI"));
+        assert!(s.frame().is_empty());
     }
 }

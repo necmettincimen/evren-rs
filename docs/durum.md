@@ -14,13 +14,16 @@ Hedef: 4.0.0 üzerine Python sürümüyle parite; sürüm 4.1.0. Ayrıntılı 4.
      `trace_report`; `evren-tui` `extras`.
    - Doğrulama: `cargo test` 200 geçti, `cargo clippy --all-targets -- -D warnings` temiz.
 
+2. Prompt çerçevesi:
+   - `evren-agent` `prompt_frame`: `collect_prompt_frame`, `prepare_frame` (netleştirme döngüsü,
+     `submit_frame_guidance` aracıyla öneriler), `FrameOptions` (`EVREN_FORM_FIELDS`,
+     `EVREN_CLARIFY_ROUNDS`, `EVREN_FRAME_SUGGEST`).
+   - REPL Brief akışı; `evren chat`/`evren agent` kalıp bayrakları, `load_frame`, Git Bash
+     `/ask` yolu düzeltmesi; `evren agent` tek seferlik görev (`evren-tui` `oneshot`).
+   - Testler: `test_prompt_frame.py`, `PromptFrameRoutingTest`, palet kontrastı taşındı.
+
 ## Kalanlar (sırayla)
 
-2. Prompt çerçevesi: `--rol/--cerceve/--brief/--kisit/--cikti` bayrakları →
-   `evren-agent/src/prompt_frame.rs` (mevcut `PromptFrame` genişletilir).
-   - `collect_prompt_frame` form akışı (`EVREN_FORM_FIELDS`, `EVREN_CLARIFY_ROUNDS`,
-     `EVREN_FRAME_SUGGEST`).
-   - Testler: `test_prompt_frame.py` (18) ve `PromptFrameRoutingTest`.
 3. `agent.md`/changelog yönetilen blokları (`src/project_docs.py`):
    - İşaretler `<!-- evren:managed:start section=... -->` ve `docs_state.json`.
    - `evren docs refresh`, `/docs unmark`.
@@ -40,3 +43,6 @@ Hedef: 4.0.0 üzerine Python sürümüyle parite; sürüm 4.1.0. Ayrıntılı 4.
 
 - Python `/doctor` Python sürüm satırı yerine çalıştırılabilir yolunu basar.
 - `/resume playbook` Faz 4'e kadar Faz 4 mesajı verir.
+- REPL'de `EVREN_FORM_FIELDS` kapalıyken boş Brief hiçbir şey yapmaz (Python son kalıbı yeniden
+  çalıştırır). Netleştirme bağlamına docs özeti 3. maddede eklenecek.
+- `evren agent` docs önyüklemesi (`ensure_project_docs`) 3. maddeye kaldı.

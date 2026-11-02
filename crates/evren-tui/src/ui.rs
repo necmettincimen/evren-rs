@@ -497,6 +497,32 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// test_prompt_frame.py: form renkleri arka planla en az 4.5:1 karşıtlıkta.
+    #[test]
+    fn palette_contrast_is_at_least_four_point_five() {
+        fn luminance((r, g, b): (u8, u8, u8)) -> f64 {
+            let lin = |c: u8| {
+                let c = f64::from(c) / 255.0;
+                if c <= 0.04045 {
+                    c / 12.92
+                } else {
+                    ((c + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+        }
+        for (theme, bg) in [("light", (0xff, 0xff, 0xff)), ("dark", (0x1e, 0x1e, 0x1e))] {
+            let p = form_palette(theme);
+            for color in [p.question, p.suggestion, p.decision] {
+                let (lo, hi) = {
+                    let (a, b) = (luminance(color), luminance(bg));
+                    (a.min(b), a.max(b))
+                };
+                assert!((hi + 0.05) / (lo + 0.05) >= 4.5, "{theme} {color:?}");
+            }
+        }
+    }
+
     #[test]
     fn thousands_groups() {
         assert_eq!(thousands(0), "0");

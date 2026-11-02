@@ -7,7 +7,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use evren_agent::modes::mode_label;
-use evren_agent::prompt_frame::{delivery_summary, is_execution_followup, PromptFrame};
+use evren_agent::prompt_frame::{
+    delivery_summary, is_execution_followup, prepare_frame, request_frame_guidance, Collected,
+    FrameError, FrameIo, FrameOptions, PromptFrame,
+};
 use evren_agent::sessions::list_sessions;
 use evren_agent::{AgentEvent, AgentSession};
 use evren_api::{ensure_terms_accepted, mask_key, ApiClient, TermsOptions, TermsUi};
@@ -29,8 +32,7 @@ use crate::input::{make_reader, EscWatcher, InputQueue, LineReader, ReadResult, 
 use crate::shell;
 use crate::ui::{self, print_error, print_info, print_success, print_warning, thousands};
 
-pub const FORM_INTRO: &str =
-    "Brief yaz ve Enter'a bas; ayrıntı ve komutlar için /help. Slash komutunu da doğrudan buraya yaz.";
+pub use evren_agent::prompt_frame::FORM_INTRO;
 
 const INTERRUPT_FOLLOWUP: &str =
     "Geçmiş duruyor. Düzeltme yazıp Enter'a basın; boş Enter kaldığı yerden devam eder.";
@@ -183,6 +185,8 @@ struct Repl {
     interrupted: bool,
     /// `.evren/commands/*.md` özel komutları.
     custom: BTreeMap<String, extras::CustomCommand>,
+    /// Son gönderilen kalıp; form alanlarında varsayılan olur.
+    last_frame: Option<PromptFrame>,
 }
 
 /// Argümansız `evren`: etkileşimli REPL'i açar.
@@ -293,10 +297,34 @@ pub async fn run(
         workspace: workspace.to_path_buf(),
         interrupted: false,
         custom: extras::refresh_custom_commands(workspace),
+        last_frame: None,
     };
     repl.run_loop().await;
     repl.shutdown();
     Ok(ExitCode::SUCCESS)
+}
+
+/// Form satırı (`_read_line`): çok satırlı etiketin üst kısmı renkli başlıkla basılır.
+fn read_form_line(reader: &mut (dyn LineReader + Send), label: &str) -> Result<String, FrameError> {
+    let label = match label.rsplit_once('\n') {
+        Some((text, label)) => {
+            let palette = ui::form_palette(&ui::ui_theme());
+            let (title, color) = match label {
+                "Karar > " => ("Netleştirme kararı", palette.decision),
+                "Yanıt > " => ("Netleştirme", palette.question),
+                _ => ("Alan önerisi", palette.suggestion),
+            };
+            println!("{}", ui::paint_rgb(color, &format!("── {title} ──")));
+            println!("{text}");
+            label
+        }
+        None => label,
+    };
+    match tokio::task::block_in_place(|| reader.read_line(label)) {
+        ReadResult::Line(l) => Ok(l),
+        ReadResult::Interrupted => Err(FrameError::Interrupted),
+        ReadResult::Eof => Err(FrameError::Eof),
+    }
 }
 
 impl Repl {
@@ -370,7 +398,9 @@ impl Repl {
     /// Tek bir girdiyi işler: slash komutu, devam ya da brief.
     async fn dispatch(&mut self, line: String) -> Flow {
         let text = line.trim().to_string();
-        if text.is_empty() {
+        let opts = FrameOptions::from_env();
+        // Boş Brief yalnız form alanları açıkken önceki kalıbın formunu açar.
+        if text.is_empty() && !opts.form_fields {
             return Flow::Continue;
         }
         if text.to_lowercase() == "devam" {
@@ -390,20 +420,74 @@ impl Repl {
             self.run_turn(Turn::Execute(text)).await;
             return Flow::Continue;
         }
+        let frame = match self.collect_frame(&text, opts) {
+            Ok(Collected::Frame(frame)) => frame,
+            Ok(Collected::Command(command)) => return self.command(&command).await,
+            Err(FrameError::Failed(e)) => {
+                print_error(&format!(
+                    "Prompt hazırlama başarısız; görev başlatılmadı: {e}"
+                ));
+                return Flow::Continue;
+            }
+            Err(FrameError::Interrupted) => {
+                println!("\nİşlem durduruldu. Çıkmak için /exit yazabilirsiniz.");
+                return Flow::Continue;
+            }
+            Err(FrameError::Eof) => return Flow::Exit,
+        };
+        if frame.is_empty() {
+            return match self.read("İstek > ") {
+                ReadResult::Line(l) if !l.trim().is_empty() => Box::pin(self.dispatch(l)).await,
+                ReadResult::Eof => Flow::Exit,
+                _ => Flow::Continue,
+            };
+        }
+        extras::clear_checkpoint(&self.workspace);
         let Some(session) = self.session() else {
             return Flow::Exit;
         };
-        let frame = PromptFrame {
-            brief: session.compact_user_text(&text),
-            ..PromptFrame::default()
-        };
+        let mut frame = frame;
+        frame.brief = session.compact_user_text(&frame.brief);
         print_info(&format!(
             "Kalıp API'ye ayrıldı: {}",
             delivery_summary(&frame)
         ));
         let content = session.apply_frame(&frame, "", true);
+        self.last_frame = Some(frame);
         self.run_turn(Turn::Step(content)).await;
         Flow::Continue
+    }
+
+    /// Brief'ten kalıbı hazırlar (`_collect_frame`): isteğe bağlı netleştirme,
+    /// alan önerileri ve form alanları (`EVREN_CLARIFY_ROUNDS`,
+    /// `EVREN_FRAME_SUGGEST`, `EVREN_FORM_FIELDS`).
+    fn collect_frame(&mut self, brief: &str, opts: FrameOptions) -> Result<Collected, FrameError> {
+        let Some(session) = self.session.as_ref() else {
+            return Err(FrameError::Eof);
+        };
+        let client = session.client().clone();
+        let model = session.model().to_string();
+        let context = format!("Çalışma dizini: {}", self.workspace.display());
+        let reader = &mut self.reader;
+        let mut read = |label: &str| read_form_line(reader.as_mut(), label);
+        let mut guide = |frame: &PromptFrame, clarify: bool| {
+            print_info(if clarify {
+                "Brief netleştiriliyor..."
+            } else {
+                "Boş alanlar için öneriler hazırlanıyor..."
+            });
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(request_frame_guidance(
+                    &client, &model, frame, clarify, &context,
+                ))
+            })
+        };
+        let mut io = FrameIo {
+            read_line: &mut read,
+            guidance: &mut guide,
+            is_command: &is_command_input,
+        };
+        prepare_frame(&mut io, brief, self.last_frame.as_ref(), opts)
     }
 
     /// Ajan turunu çalıştırır; olayları basar, ESC/Ctrl+C turu iptal eder.
@@ -586,7 +670,8 @@ v{ver} Sürüm Notları:"
             "/commit" => extras::commit(session).await,
             "/review" => {
                 if extras::review_ready(&self.workspace) {
-                    self.run_turn(Turn::Step(extras::REVIEW_PROMPT.into())).await;
+                    self.run_turn(Turn::Step(extras::REVIEW_PROMPT.into()))
+                        .await;
                 }
             }
             "/init" => {
@@ -771,5 +856,77 @@ mod tests {
             );
         }
         assert!(HELP_TEXT.contains("/exit         - Çıkış"));
+    }
+
+    // --- tests/test_paste_input.py PromptFrameRoutingTest ---
+
+    use evren_agent::prompt_frame::{collect_guided_prompt_frame, FrameGuidance};
+
+    const BUILD_ERROR: &str = "/src/Portal.Api/Portal.Api.csproj : error CS0246: The type or namespace name 'Foo' could not be found (are you missing a using directive?)";
+
+    fn collect(
+        answers: &[&str],
+        clarify_rounds: u32,
+        guidance: &mut dyn FnMut(&PromptFrame, bool) -> Result<FrameGuidance, String>,
+    ) -> Result<Collected, FrameError> {
+        let mut inputs = answers.iter().map(|s| s.to_string());
+        let mut read = |_: &str| inputs.next().ok_or(FrameError::Eof);
+        let opts = FrameOptions {
+            clarify_rounds,
+            ..FrameOptions::default()
+        };
+        collect_guided_prompt_frame(
+            &mut FrameIo {
+                read_line: &mut read,
+                guidance,
+                is_command: &is_command_input,
+            },
+            None,
+            opts,
+        )
+    }
+
+    fn no_guidance(_: &PromptFrame, _: bool) -> Result<FrameGuidance, String> {
+        unreachable!("hazırlık çağrısı yapılmamalı")
+    }
+
+    #[test]
+    fn pasted_error_becomes_the_brief_and_commands_return_as_text() {
+        let paste = format!("{BUILD_ERROR}\n/src/Portal.Api/B.cs(3,4): error CS1002: ; expected");
+        for text in [BUILD_ERROR, paste.as_str()] {
+            match collect(&[text], 0, &mut no_guidance) {
+                Ok(Collected::Frame(f)) => assert_eq!(f.brief, text),
+                other => unreachable!("kalıp bekleniyordu: {other:?}"),
+            }
+        }
+        for text in ["/clear", "/ssh list", "/cleare"] {
+            assert_eq!(
+                collect(&[text], 0, &mut no_guidance),
+                Ok(Collected::Command(text.into()))
+            );
+        }
+        // Netleştirme sırasında yazılan komut kalıbı yine keser.
+        let mut abort = |_: &PromptFrame, _: bool| Ok(FrameGuidance::question("Hangi hata?"));
+        assert_eq!(
+            collect(&["derle", "/clear"], 2, &mut abort),
+            Ok(Collected::Command("/clear".into()))
+        );
+    }
+
+    #[test]
+    fn pasted_clarification_answer_is_an_answer_not_a_command() {
+        let mut calls = 0;
+        let mut guidance = |_: &PromptFrame, _: bool| {
+            calls += 1;
+            Ok(if calls == 1 {
+                FrameGuidance::question("Hangi hata?")
+            } else {
+                FrameGuidance::default()
+            })
+        };
+        match collect(&["derle", BUILD_ERROR], 2, &mut guidance) {
+            Ok(Collected::Frame(f)) => assert!(f.clarifications.contains("error CS0246")),
+            other => unreachable!("kalıp bekleniyordu: {other:?}"),
+        }
     }
 }
