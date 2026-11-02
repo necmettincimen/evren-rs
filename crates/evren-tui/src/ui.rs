@@ -19,19 +19,76 @@ fn paint(code: &str, text: &str) -> String {
 }
 
 pub fn print_info(msg: &str) {
-    println!("{} {msg}", paint("36", "[*]"));
+    if color_enabled() {
+        println!("{} {msg}", paint("36", "ℹ"));
+    } else {
+        println!("[*] {msg}");
+    }
 }
 
 pub fn print_success(msg: &str) {
-    println!("{} {msg}", paint("1;32", "[+]"));
+    if color_enabled() {
+        println!("{} {msg}", paint("1;32", "✔"));
+    } else {
+        println!("[+] {msg}");
+    }
 }
 
 pub fn print_warning(msg: &str) {
-    println!("{} {msg}", paint("33", "[!]"));
+    if color_enabled() {
+        println!("{} {msg}", paint("33", "⚠"));
+    } else {
+        println!("[!] {msg}");
+    }
 }
 
 pub fn print_error(msg: &str) {
-    println!("{} {msg}", paint("1;31", "[X]"));
+    if color_enabled() {
+        println!("{}", paint("1;31", &format!("✖ {msg}")));
+    } else {
+        println!("[X] {msg}");
+    }
+}
+
+/// Seçili tema (`EVREN_UI_THEME`, light|dark; geçersizse dark).
+pub fn ui_theme() -> String {
+    match std::env::var("EVREN_UI_THEME")
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase()
+        .as_str()
+    {
+        "light" => "light".into(),
+        _ => "dark".into(),
+    }
+}
+
+/// `FORM_PALETTES`: form başlık renkleri (soru, öneri, karar).
+pub struct FormPalette {
+    pub question: (u8, u8, u8),
+    pub suggestion: (u8, u8, u8),
+    pub decision: (u8, u8, u8),
+}
+
+pub fn form_palette(theme: &str) -> FormPalette {
+    if theme == "light" {
+        FormPalette {
+            question: (0x00, 0x5a, 0x9c),
+            suggestion: (0x14, 0x6b, 0x32),
+            decision: (0x8a, 0x44, 0x00),
+        }
+    } else {
+        FormPalette {
+            question: (0x66, 0xd9, 0xef),
+            suggestion: (0x8f, 0xdf, 0x8f),
+            decision: (0xff, 0xd1, 0x66),
+        }
+    }
+}
+
+/// 24 bit renkli kalın metin (renk kapalıysa düz).
+pub fn paint_rgb(rgb: (u8, u8, u8), text: &str) -> String {
+    paint(&format!("1;38;2;{};{};{}", rgb.0, rgb.1, rgb.2), text)
 }
 
 pub fn flush() {
@@ -267,20 +324,32 @@ fn py_repr(v: &Value) -> String {
     }
 }
 
-/// `format_tool_args`: boş/yanlış değerler atlanır, kısa olan önce, 100 karakter sınırı.
-pub fn format_tool_args(args: &Value) -> String {
+/// `_is_default_arg`: boş/yanlış değer ya da şemadaki varsayılana eşit değer.
+fn is_default_arg(tool: &str, key: &str, value: &Value) -> bool {
+    match value {
+        Value::Null | Value::Bool(false) => return true,
+        Value::String(s) if s.trim().is_empty() => return true,
+        Value::Array(a) if a.is_empty() => return true,
+        Value::Object(o) if o.is_empty() => return true,
+        _ => {}
+    }
+    let default = evren_core::tools::registry::schema_for(tool)
+        .and_then(|t| t.pointer(&format!("/function/parameters/properties/{key}/default")));
+    match (default, value) {
+        (Some(Value::Number(a)), Value::Number(b)) => a.as_f64() == b.as_f64(),
+        (Some(d), v) => d == v,
+        (None, _) => false,
+    }
+}
+
+/// `format_tool_args`: boş/yanlış ve şema varsayılanı değerler atlanır, kısa olan önce, 100 karakter sınırı.
+pub fn format_tool_args(tool: &str, args: &Value) -> String {
     let Some(map) = args.as_object() else {
         return String::new();
     };
     let mut parts: Vec<(String, String)> = map
         .iter()
-        .filter(|(_, v)| match v {
-            Value::Null | Value::Bool(false) => false,
-            Value::String(s) => !s.is_empty(),
-            Value::Array(a) => !a.is_empty(),
-            Value::Object(o) => !o.is_empty(),
-            _ => true,
-        })
+        .filter(|(k, v)| !is_default_arg(tool, k, v))
         .map(|(k, v)| (k.clone(), py_repr(v)))
         .collect();
     parts.sort_by_key(|(_, r)| r.chars().count());
@@ -297,28 +366,67 @@ pub fn format_tool_args(args: &Value) -> String {
 }
 
 pub fn print_tool_call(name: &str, args: &Value) {
-    println!(
-        "{}",
-        paint("1;34", &format!(">> [Araç] {name}({})", format_tool_args(args)))
-    );
+    let summary = format_tool_args(name, args);
+    if color_enabled() {
+        println!(
+            "{} {}({})",
+            paint("1;34", "⚡ Araç Çağrısı:"),
+            paint("1;37", name),
+            paint("2", &summary)
+        );
+    } else {
+        println!(">> [Araç] {name}({summary})");
+    }
 }
 
 pub fn print_tool_result(name: &str, ok: bool, summary: &str) {
-    if ok {
-        println!("  {} {name} completed: {summary}", paint("32", "[+]"));
+    match (color_enabled(), ok) {
+        (true, true) => println!(
+            "  {} {}",
+            paint("1;32", &format!("✔ {name} tamamlandı:")),
+            paint("2", summary)
+        ),
+        (true, false) => println!("  {} {summary}", paint("1;31", &format!("✖ {name} hatası:"))),
+        (false, true) => println!("  [+] {name} completed: {summary}"),
+        (false, false) => println!("  [X] {name} error: {summary}"),
+    }
+}
+
+/// Canlı komut çıktısı satırı; stderr soluk kırmızı.
+pub fn print_command_output(line: &str, stderr: bool) {
+    let text = line.trim_end_matches(['\n', '\r']);
+    if stderr && color_enabled() {
+        println!("{}", paint("2;31", text));
     } else {
-        println!("  {} {name} error: {summary}", paint("31", "[X]"));
+        println!("{text}");
+    }
+}
+
+/// Akış parçası olarak düşünme metni (italik mor).
+pub fn reasoning_chunk(chunk: &str) -> String {
+    paint("3;35", chunk)
+}
+
+/// Bütün düşünme metni (`print_reasoning`, akışsız).
+pub fn print_reasoning(text: &str) {
+    if color_enabled() {
+        let rule = paint("35", &"─".repeat(60));
+        println!("{}", paint("1;35", "💭 Düşünme / Akıl Yürütme"));
+        println!("{rule}");
+        println!("{}", paint("3;35", text));
+        println!("{rule}");
+    } else {
+        println!("\n--- [Düşünme] ---\n{text}\n-----------------\n");
     }
 }
 
 pub fn print_run_summary(steps: u32, seconds: f64, tokens: i64) {
-    println!(
-        "{}",
-        paint(
-            "2",
-            &format!("Özet: {steps} adım • {seconds:.1}s • {tokens} token")
-        )
-    );
+    let line = format!("Özet: {steps} adım • {seconds:.1}s • {tokens} token");
+    if color_enabled() {
+        println!("{}", paint("2", &line));
+    } else {
+        println!("{line}");
+    }
 }
 
 /// Birleşik diff metni mi (`--- a/` + `+++ b/` başlıkları).
@@ -326,24 +434,58 @@ pub fn looks_like_diff(text: &str) -> bool {
     text.lines().any(|l| l.starts_with("--- ")) && text.lines().any(|l| l.starts_with("+++ "))
 }
 
-/// `print_diff` (düz dal): `+` yeşil, `-` kırmızı.
-pub fn print_diff(text: &str) {
+/// Diff başlığından dosya adı (`+++ b/yol` → `yol`).
+pub fn diff_filename(text: &str) -> String {
+    text.lines()
+        .find_map(|l| l.strip_prefix("+++ "))
+        .map(|p| p.trim().trim_start_matches("b/").to_string())
+        .unwrap_or_default()
+}
+
+fn diff_color(line: &str) -> Option<&'static str> {
+    if line.starts_with("+++") || line.starts_with("---") {
+        Some("1")
+    } else if line.starts_with('+') {
+        Some("32")
+    } else if line.starts_with('-') {
+        Some("31")
+    } else if line.starts_with("@@") {
+        Some("36")
+    } else {
+        None
+    }
+}
+
+/// `print_diff`: uçbirimde başlıklı, satır numaralı renkli önizleme; değilse
+/// Python düz dalı (`--- DIFF: dosya ---`).
+pub fn print_diff(text: &str, filename: &str) {
     if text.trim().is_empty() {
         print_info("Değişiklik yok.");
         return;
     }
-    for line in text.lines() {
-        if line.starts_with("+++") || line.starts_with("---") {
-            println!("{}", paint("1", line));
-        } else if line.starts_with('+') {
-            println!("{}", paint("32", line));
-        } else if line.starts_with('-') {
-            println!("{}", paint("31", line));
-        } else if line.starts_with("@@") {
-            println!("{}", paint("36", line));
-        } else {
+    let name = if filename.is_empty() {
+        diff_filename(text)
+    } else {
+        filename.to_string()
+    };
+    if color_enabled() {
+        let lines: Vec<&str> = text.lines().collect();
+        let width = lines.len().to_string().len();
+        println!("{}", paint("1;33", &format!("── Fark Önizleme (Diff): {name} ──")));
+        for (i, line) in lines.iter().enumerate() {
+            let body = match diff_color(line) {
+                Some(code) => paint(code, line),
+                None => line.to_string(),
+            };
+            println!("{} {body}", paint("2", &format!("{:>width$}", i + 1)));
+        }
+        println!("{}", paint("33", &"─".repeat(40)));
+    } else {
+        println!("\n--- DIFF: {name} ---");
+        for line in text.lines() {
             println!("{line}");
         }
+        println!("------------------------\n");
     }
 }
 
@@ -362,13 +504,58 @@ mod tests {
     #[test]
     fn tool_args_skip_empty_and_sort() {
         let args = json!({"path": "a.txt", "content": "uzun içerik", "flag": false, "x": null});
-        assert_eq!(format_tool_args(&args), "path='a.txt', content='uzun içerik'");
+        assert_eq!(format_tool_args("write_file", &args), "path='a.txt', content='uzun içerik'");
+    }
+
+    #[test]
+    fn tool_args_skip_false_empty_and_schema_defaults() {
+        let args = json!({
+            "command": "pytest -q",
+            "timeout_seconds": 180,
+            "use_python": false,
+            "use_powershell": false,
+            "run_in_background": false,
+            "alias": "prod",
+            "empty": "",
+        });
+        let s = format_tool_args("run_command", &args);
+        assert!(s.contains("command='pytest -q'"), "{s}");
+        assert!(s.contains("alias='prod'"));
+        for hidden in ["timeout_seconds", "use_python", "run_in_background", "empty"] {
+            assert!(!s.contains(hidden), "{hidden}: {s}");
+        }
+    }
+
+    #[test]
+    fn tool_args_keep_non_default_values() {
+        let s = format_tool_args(
+            "run_command",
+            &json!({"command": "ls", "timeout_seconds": 30, "use_python": true}),
+        );
+        assert!(s.contains("timeout_seconds=30"), "{s}");
+        assert!(s.contains("use_python=True"));
+    }
+
+    #[test]
+    fn strip_markdown_plain_text_fallback() {
+        let t = strip_markdown("# Başlık\n**kalın** ve `kod` satırı\n- madde");
+        for mark in ["#", "**", "`"] {
+            assert!(!t.contains(mark), "{t}");
+        }
+        assert!(t.contains("kalın") && t.contains("kod") && t.contains("madde"));
+    }
+
+    #[test]
+    fn palettes_and_diff_name() {
+        assert_eq!(form_palette("light").question, (0x00, 0x5a, 0x9c));
+        assert_eq!(form_palette("dark").decision, (0xff, 0xd1, 0x66));
+        assert_eq!(diff_filename("--- a/x.rs\n+++ b/src/x.rs\n"), "src/x.rs");
     }
 
     #[test]
     fn tool_args_clip_long() {
         let args = json!({"content": "x".repeat(200)});
-        let s = format_tool_args(&args);
+        let s = format_tool_args("write_file", &args);
         assert_eq!(s.chars().count(), 100);
         assert!(s.ends_with("..."));
     }

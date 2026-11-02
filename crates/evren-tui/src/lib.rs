@@ -2,6 +2,7 @@
 
 pub mod events;
 pub mod input;
+pub mod markdown;
 pub mod repl;
 pub mod ui;
 

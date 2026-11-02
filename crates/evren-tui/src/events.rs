@@ -14,6 +14,7 @@ use evren_core::tools::{ApprovalReply, ApprovalRequest};
 use serde_json::Value;
 
 use crate::input::WatchPause;
+use crate::markdown::MarkdownStream;
 use crate::ui;
 
 /// Onay sorusunun cevabı.
@@ -110,7 +111,7 @@ pub struct EventPrinter {
     workspace: PathBuf,
     prompter: Box<dyn Prompter>,
     last_call: Option<(String, Value)>,
-    assistant_open: bool,
+    md: MarkdownStream,
     reasoning_open: bool,
     /// `always` ile kural eklendi; tur sonunda ayarlar yeniden yüklenmeli.
     pub settings_dirty: bool,
@@ -122,7 +123,7 @@ impl EventPrinter {
             workspace,
             prompter,
             last_call: None,
-            assistant_open: false,
+            md: MarkdownStream::new(ui::color_enabled(), &ui::ui_theme()),
             reasoning_open: false,
             settings_dirty: false,
         }
@@ -130,45 +131,54 @@ impl EventPrinter {
 
     /// Akış satırı açıksa kapatır.
     fn close_stream(&mut self) {
-        if self.assistant_open || self.reasoning_open {
+        if self.reasoning_open {
             println!();
         }
-        self.assistant_open = false;
         self.reasoning_open = false;
+        let rest = self.md.finish();
+        if !rest.is_empty() {
+            print!("{rest}");
+            ui::flush();
+        }
     }
 
     pub fn handle(&mut self, event: AgentEvent) {
         match event {
             AgentEvent::ReasoningDelta(chunk) => {
-                if self.assistant_open {
+                if self.md.active() {
                     self.close_stream();
                 }
                 self.reasoning_open = true;
-                print!("{}", paint_reasoning(&chunk));
+                print!("{}", ui::reasoning_chunk(&chunk));
                 ui::flush();
             }
             AgentEvent::AssistantDelta(chunk) => {
                 if self.reasoning_open {
                     self.close_stream();
                 }
-                self.assistant_open = true;
-                print!("{chunk}");
-                ui::flush();
+                let out = self.md.push(&chunk);
+                if !out.is_empty() {
+                    print!("{out}");
+                    ui::flush();
+                }
             }
             AgentEvent::Reasoning(text) => {
                 if self.reasoning_open {
                     self.close_stream();
                 } else if !text.trim().is_empty() {
                     self.close_stream();
-                    println!("\n--- [Düşünme] ---\n{text}\n-----------------\n");
+                    ui::print_reasoning(&text);
                 }
             }
             AgentEvent::Assistant(text) => {
-                if self.assistant_open {
+                if self.md.active() {
                     self.close_stream();
                 } else if !text.trim().is_empty() {
                     self.close_stream();
-                    println!("{text}");
+                    let mut md = MarkdownStream::new(ui::color_enabled(), &ui::ui_theme());
+                    let mut out = md.push(&text);
+                    out.push_str(&md.finish());
+                    print!("{out}");
                 }
             }
             AgentEvent::Status(msg) => {
@@ -178,7 +188,7 @@ impl EventPrinter {
             AgentEvent::Info(msg) => {
                 self.close_stream();
                 if ui::looks_like_diff(&msg) {
-                    ui::print_diff(&msg);
+                    ui::print_diff(&msg, "");
                 } else {
                     ui::print_info(&msg);
                 }
@@ -204,10 +214,7 @@ impl EventPrinter {
             }
             AgentEvent::ToolOutput { stream, line } => {
                 self.close_stream();
-                match stream {
-                    StreamTag::Stderr => eprintln!("{line}"),
-                    _ => println!("{line}"),
-                }
+                ui::print_command_output(&line, matches!(stream, StreamTag::Stderr));
             }
             AgentEvent::ApprovalRequest { request, reply } => {
                 self.close_stream();
@@ -236,12 +243,12 @@ impl EventPrinter {
     fn approve(&mut self, request: &ApprovalRequest) -> ApprovalReply {
         if !request.detail.trim().is_empty() {
             if ui::looks_like_diff(&request.detail) {
-                ui::print_diff(&request.detail);
+                ui::print_diff(&request.detail, "");
             } else {
                 println!("{}", request.detail);
             }
         } else if let Some(p) = &request.proposal {
-            ui::print_diff(&generate_unified_diff(&p.old, &p.new, &p.path));
+            ui::print_diff(&generate_unified_diff(&p.old, &p.new, &p.path), &p.path);
         }
         if let Some(w) = &request.warning {
             ui::print_warning(w);
@@ -276,14 +283,6 @@ impl EventPrinter {
     /// Tur sonunda açık akış satırını kapatır.
     pub fn finish(&mut self) {
         self.close_stream();
-    }
-}
-
-fn paint_reasoning(chunk: &str) -> String {
-    if ui::color_enabled() {
-        format!("\x1b[3;35m{chunk}\x1b[0m")
-    } else {
-        chunk.to_string()
     }
 }
 
