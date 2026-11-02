@@ -812,3 +812,21 @@ fn inputs_are_appended_verbatim() {
         .unwrap_err()
         .contains("girdi boş"));
 }
+
+#[test]
+fn state_sees_new_file_beside_nested_repo() {
+    // İzlenmeyen iç içe depo (`nested/`) varken var olan izlenmeyen dizine eklenen dosya
+    // durumu değiştirmeli; eskiden untracked_hash `None` dönüp değişikliği gizliyordu.
+    let w = ws();
+    std::fs::create_dir_all(w.repo.join("nested")).unwrap();
+    g(&w.repo.join("nested"), &["init", "-q"]);
+    std::fs::create_dir_all(w.repo.join("reports")).unwrap();
+    std::fs::write(w.repo.join("reports/old.md"), "eski").unwrap();
+    assert!(untracked_hash(&w.repo).is_some());
+    let r = fake(
+        &w,
+        |wd| std::fs::write(wd.join("app/reports/new.md"), "yeni").unwrap(),
+        "bitti",
+    );
+    run(&w, json!({"prompt": "x", "repo": "app", "_label": "t-nested"}), &r).unwrap();
+}

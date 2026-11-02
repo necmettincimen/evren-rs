@@ -5,6 +5,16 @@ Bu projedeki tüm önemli değişiklikler bu dosyada belgelenir.
 Format [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) standardına,
 sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kurallarına dayanır.
 
+## [4.3.1] - 2026-11-02
+
+### Düzeltildi
+- Plan `agent` adımı "değişiklik yok" yanlış alarmı: depoda izlenmeyen iç içe git deposu
+  (ör. `.evren/worktrees/x/`, alt repo) varken `git hash-object --stdin-paths` `dir/` girdisinde
+  düşüyor, izlenmeyen dosya özeti tümden boş kalıyordu. Önceden var olan izlenmeyen dizine
+  (ör. `reports/`) yazılan rapor ya da yeni dosya bu yüzden görünmüyordu; 4.3.0'daki
+  `kind: "report"` önerisi bu kök nedeni örtüyordu. `dir/` girdileri artık ad olarak özete
+  giriyor, içerik hash'inden atlanıyor.
+
 ## [4.3.0] - 2026-11-02
 
 ### Eklendi

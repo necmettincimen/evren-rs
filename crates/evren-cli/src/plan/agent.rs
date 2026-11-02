@@ -448,10 +448,13 @@ fn untracked_hash(repo: &Path) -> Option<String> {
     if ls.code != 0 {
         return None;
     }
+    // `dir/` girdileri (izlenmeyen iç içe git deposu, ör. `.evren/worktrees/x/`) hash-object'i
+    // tümden düşürüyordu; özet `None` olunca var olan izlenmeyen dizine yazılan dosya görünmüyor,
+    // ajan "değişiklik yok" ile düşüyordu. Adları `ls.out` ile özete girer, içerikleri atlanır.
     let paths: Vec<&[u8]> = ls
         .out
         .split(|b| *b == 0)
-        .filter(|p| !p.is_empty())
+        .filter(|p| !p.is_empty() && !p.ends_with(b"/"))
         .collect();
     if paths.is_empty() {
         return Some(String::new());
