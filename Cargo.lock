@@ -534,6 +534,7 @@ dependencies = [
  "evren-protocol",
  "evren-tui",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-util",
 ]

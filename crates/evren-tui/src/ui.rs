@@ -128,6 +128,85 @@ pub fn config_line(info: &Map<String, Value>) -> String {
     )
 }
 
+/// Depo kökündeki `CHANGELOG.md` (ikiliye gömülü).
+pub const CHANGELOG: &str = include_str!("../../../CHANGELOG.md");
+
+/// `get_changelog_notes`: `## [sürüm]` başlığı altındaki `- ` / `* ` maddeleri.
+pub fn changelog_notes(text: &str, version: &str, max_items: usize) -> Vec<String> {
+    let heading = format!(r"(?m)^##\s+\[{}\].*$", regex::escape(version));
+    let Ok(re) = regex::Regex::new(&heading) else {
+        return Vec::new();
+    };
+    let Some(m) = re.find(text) else {
+        return Vec::new();
+    };
+    let mut section = &text[m.end()..];
+    if let Some(next) = regex::Regex::new(r"(?m)^##\s+")
+        .ok()
+        .and_then(|r| r.find(section))
+    {
+        section = &section[..next.start()];
+    }
+    let mut notes = Vec::new();
+    for line in section.lines() {
+        let stripped = line.trim();
+        if let Some(rest) = stripped
+            .strip_prefix("- ")
+            .or_else(|| stripped.strip_prefix("* "))
+        {
+            notes.push(rest.trim().to_string());
+            if notes.len() >= max_items {
+                break;
+            }
+        }
+    }
+    notes
+}
+
+/// Bu sürümün notları (gömülü CHANGELOG'dan).
+pub fn release_notes(max_items: usize) -> Vec<String> {
+    changelog_notes(CHANGELOG, evren_core::VERSION, max_items)
+}
+
+/// `strip_markdown`: **kalın**, `kod`, # başlık işaretlerini kaldırır, madde → `• `.
+pub fn strip_markdown(text: &str) -> String {
+    static RES: std::sync::OnceLock<Option<[regex::Regex; 4]>> = std::sync::OnceLock::new();
+    let Some([code, bold, heading, bullet]) = RES.get_or_init(|| {
+        Some([
+            regex::Regex::new(r"`{1,3}[^`]*`{1,3}").ok()?,
+            regex::Regex::new(r"(\*\*|__)").ok()?,
+            regex::Regex::new(r"(?m)^\s{0,3}#{1,6}\s+").ok()?,
+            regex::Regex::new(r"(?m)^(\s*)[-*]\s+").ok()?,
+        ])
+    }) else {
+        return text.to_string();
+    };
+    let text = code.replace_all(text, |c: &regex::Captures| {
+        c[0].trim_matches('`').to_string()
+    });
+    let text = bold.replace_all(&text, "");
+    let text = heading.replace_all(&text, "");
+    bullet.replace_all(&text, "$1• ").into_owned()
+}
+
+/// `_clean_release_note`: markdown'sız, tek satır, `limit` karakterde kelime sınırında `…`.
+pub fn clean_release_note(note: &str, limit: usize) -> String {
+    let text = strip_markdown(note);
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut text = text
+        .trim_start_matches(['#', '-', '•', ' '])
+        .trim()
+        .to_string();
+    if text.chars().count() > limit {
+        let mut cut: String = text.chars().take(limit).collect();
+        if let Some(pos) = cut.rfind(' ') {
+            cut.truncate(pos);
+        }
+        text = format!("{}…", cut.trim_end_matches([' ', ',', ';', ':', '.', '·']));
+    }
+    text
+}
+
 /// `print_banner` (düz metin dalı).
 pub fn print_banner(
     version: &str,
@@ -313,6 +392,25 @@ mod tests {
             config_line(&m),
             "Yapılandırma: .env=yok | config=config.json (yok) | anahtar=bulunamadı (0 anahtar)"
         );
+    }
+
+    #[test]
+    fn changelog_section_notes() {
+        let text = "# Log\n\n## [1.2.0] - x\n\n### Eklendi\n- bir\n* iki\n\n## [1.1.0]\n- eski\n";
+        assert_eq!(changelog_notes(text, "1.2.0", 6), vec!["bir", "iki"]);
+        assert_eq!(changelog_notes(text, "1.2.0", 1), vec!["bir"]);
+        assert!(changelog_notes(text, "9.9.9", 6).is_empty());
+        assert!(!release_notes(4).is_empty());
+    }
+
+    #[test]
+    fn release_note_cleaned() {
+        assert_eq!(clean_release_note("**Kalın** `kod` not", 56), "Kalın kod not");
+        let long = "kelime ".repeat(20);
+        let out = clean_release_note(&long, 56);
+        assert!(out.ends_with('…'));
+        assert!(out.chars().count() <= 57);
+        assert_eq!(strip_markdown("# Başlık\n- madde"), "Başlık\n• madde");
     }
 
     #[test]

@@ -266,7 +266,10 @@ pub async fn run(
         workspace,
         &quota,
         &config.source_report(),
-        &[],
+        &ui::release_notes(4)
+            .iter()
+            .map(|n| ui::clean_release_note(n, 56))
+            .collect::<Vec<_>>(),
     );
     print_info(FORM_INTRO);
     if opts.continue_last {
@@ -464,7 +467,17 @@ impl Repl {
             }
             "/help" | "/h" | "/?" => println!("{HELP_TEXT}"),
             "/version" | "/ver" | "/v" => {
-                print_info(&format!("EVREN CLI Sürümü: v{}", evren_core::VERSION));
+                let ver = evren_core::VERSION;
+                print_info(&format!("EVREN CLI Sürümü: v{ver}"));
+                let notes = ui::release_notes(20);
+                if !notes.is_empty() {
+                    println!("
+v{ver} Sürüm Notları:");
+                    for note in notes {
+                        println!("  • {note}");
+                    }
+                    println!();
+                }
             }
             "/model" => {
                 if arg.is_empty() {
