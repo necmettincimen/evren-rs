@@ -5,6 +5,20 @@ Bu projedeki tüm önemli değişiklikler bu dosyada belgelenir.
 Format [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) standardına,
 sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kurallarına dayanır.
 
+## [4.1.1] - 2026-11-02
+
+### Eklendi
+- `evren debug`, `evren scan`, `evren quota`, `evren rollback`, `evren setup-terminal`
+  (`terminal`) ve `evren chat --file`; artık `not_ported` dönen alt komut yok.
+- `search_code` (anlamsal arama, `.evren/index/index.json`) ve `describe_image` araçları;
+  `view_file` görsel dosyada görü modeline gider.
+
+### Düzeltildi
+- agent adımı: önceden kirli dosyadaki düzenleme algılanmıyordu. Çalışma ağacı özeti artık
+  `git diff HEAD` ve izlenmeyen dosya içeriklerinin hash'ini de içerir; gereksiz "değişiklik
+  yok" yeniden denemesi ve rapora çift ekleme önlendi.
+- `delegate`: boş görev, `max_steps` ayrıştırma ve alt ajan sistem istemi Python ile hizalandı.
+
 ## [4.1.0] - 2026-11-02
 
 ### Eklendi

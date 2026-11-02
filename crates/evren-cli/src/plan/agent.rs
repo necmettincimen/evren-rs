@@ -427,16 +427,60 @@ fn head(repo: &Path) -> String {
     git(repo, &["rev-parse", "HEAD"]).stdout()
 }
 
-/// HEAD + çalışma ağacı özeti; git deposu değilse `None`.
+fn sha_hex(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// İzlenmeyen dosyaların içerik özeti (`ls-files --others` + `hash-object --stdin-paths`).
+fn untracked_hash(repo: &Path) -> Option<String> {
+    let ls = git_t(repo, &["ls-files", "--others", "--exclude-standard", "-z"], 60);
+    if ls.code != 0 {
+        return None;
+    }
+    let paths: Vec<&[u8]> = ls.out.split(|b| *b == 0).filter(|p| !p.is_empty()).collect();
+    if paths.is_empty() {
+        return Some(String::new());
+    }
+    let mut input = Vec::new();
+    for p in &paths {
+        input.extend_from_slice(p);
+        input.push(b'\n');
+    }
+    let mut c = Command::new("git");
+    c.arg("-C").arg(repo).args(["hash-object", "--stdin-paths"]);
+    let r = run_capture(&mut c, Some(input), Duration::from_secs(60)).ok()?;
+    if r.code != 0 {
+        return None;
+    }
+    let mut all = ls.out;
+    all.extend_from_slice(&r.stdout);
+    Some(sha_hex(&all))
+}
+
+/// HEAD + çalışma ağacı özeti (porcelain, izlenen dosya diff'i ve izlenmeyen dosya içerikleri
+/// hash'lenir; önceden kirli dosyadaki yeni düzenleme de fark yaratır). Git deposu değilse `None`.
 fn state(repo: &Path) -> Option<String> {
     let st = git_t(repo, &["status", "--porcelain"], 60);
     if st.code != 0 {
         return None;
     }
+    // HEAD'siz (commit'siz) depoda `diff HEAD` başarısız olur; porcelain tek başına kalır.
+    let diff = git_t(repo, &["diff", "HEAD", "--no-ext-diff", "--binary"], 60);
+    let diff_hash = if diff.code == 0 {
+        sha_hex(&diff.out)
+    } else {
+        String::new()
+    };
     Some(format!(
-        "{}\n{}",
+        "{}\n{}\n{}\n{}",
         head(repo),
-        String::from_utf8_lossy(&st.out)
+        String::from_utf8_lossy(&st.out),
+        diff_hash,
+        untracked_hash(repo).unwrap_or_default()
     ))
 }
 

@@ -481,6 +481,52 @@ fn fixed_outcome_without_change_fails() {
     );
 }
 
+/// Önceden kirli dosyayı tekrar düzenleyen ajan "değişiklik yok" almamalı ve yeniden denenmemeli.
+fn edit_dirty_file_once(w: &Ws, file: &'static str) {
+    let calls = Arc::new(Mutex::new(0usize));
+    let c = calls.clone();
+    let repo = w.repo.clone();
+    let r = fake(
+        w,
+        move |_| {
+            *c.lock().unwrap() += 1;
+            let p = repo.join(file);
+            let mut s = std::fs::read_to_string(&p).unwrap_or_default();
+            s.push_str("\nek satır");
+            std::fs::write(&p, s).unwrap();
+        },
+        "Tamamlandı.",
+    );
+    let res = run(w, json!({"prompt": "x", "repo": "app", "retries": 2}), &r);
+    if let Err(e) = &res {
+        assert!(!e.contains("değişiklik yok"), "{e}");
+    }
+    assert_eq!(*calls.lock().unwrap(), 1, "{res:?}");
+}
+
+#[test]
+fn edit_of_preexisting_untracked_file_counts_as_change() {
+    let w = ws();
+    std::fs::write(w.repo.join("notes.md"), "not").unwrap();
+    edit_dirty_file_once(&w, "notes.md");
+}
+
+#[test]
+fn edit_of_preexisting_modified_file_counts_as_change() {
+    let w = ws();
+    std::fs::write(w.repo.join("a.txt"), "2").unwrap();
+    edit_dirty_file_once(&w, "a.txt");
+}
+
+#[test]
+fn agent_doing_nothing_is_no_change() {
+    let w = ws();
+    std::fs::write(w.repo.join("notes.md"), "not").unwrap();
+    let r = fake(&w, |_| {}, "Tamamlandı.");
+    let err = run(&w, json!({"prompt": "x", "repo": "app", "retries": 0}), &r).unwrap_err();
+    assert!(err.contains("değişiklik yok"), "{err}");
+}
+
 #[test]
 fn missing_outcome_line_fails() {
     let w = ws();
