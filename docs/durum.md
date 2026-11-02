@@ -35,15 +35,19 @@ Hedef: 4.0.0 üzerine Python sürümüyle parite; sürüm 4.1.0. Ayrıntılı 4.
      sınırı, ikili içerik reddi, `ssl_verify`); URL kasadan açılır.
    - Doğrulama: `cargo test` 262 geçti, clippy temiz.
 
+5. Faz 4c `evren plan` (`crates/evren-cli/src/plan/`: mod/agent/remote):
+   - `evren plan <plan.json> [--dry-run] [--allow-push] [--from N] [-w]`; satır biçimleri Python
+     ile aynı (`[i/n] op: ...`, `HATA` + `Devam için: ...`, `PLAN TAMAMLANDI`).
+   - Adımlar: clone_tree, replace, write, run, commit, push (kilitli, Drone tetikleme/bekleme),
+     parallel (`max_workers`, süreçler arası slotlar), agent (worktree, sözleşme, rapor/SONUÇ,
+     verify kapısı, adım sınırında devam, öldürülen denemeyi sürdürme) ve uzak adımlar.
+   - `AgentRunner` özelliği testte sahte çalıştırıcıyla değişir; `test_plan_agent.py` (26 test)
+     ve çalıştırıcı adım testleri taşındı.
+   - Doğrulama: `cargo test` 299 geçti, clippy temiz; kuru çalıştırma çıktısı Python ile birebir.
+
 ## Kalanlar (sırayla)
 
 4. Faz 4:
-   - `plan_runner`/`plan_agent`/`plan_ops_remote` (`evren plan <plan.json> --dry-run --allow-push
-     --from N -w`). Python günlükleri `reports/agent-logs/<plan>-<i>-a<deneme>.log` yazar (`.evren/logs`
-     değil); worktree `.evren/worktrees/<etiket>`, dal `evren/<etiket>`, slotlar
-     `~/.evren/slots/slot-N.lock` (`EVREN_MAX_PARALLEL`). Tasarım: `crates/evren-cli/src/plan/`
-     (mod/agent/remote), ajan çalıştırıcısı testte değiştirilebilir; `tests/test_plan_agent.py`
-     testleri taşınacak.
    - Komutlar: skills, playbook, template, track/task/progress/checkpoint/blockers/check-in/decisions.
    - SSH araçları ve `/ssh`, `/iterate`, `output_summary`, `tool_gateway`, TOML rolleri.
 5. Kapanış:
@@ -52,6 +56,8 @@ Hedef: 4.0.0 üzerine Python sürümüyle parite; sürüm 4.1.0. Ayrıntılı 4.
    - `scripts/install.ps1` ve `evren --version` kontrolü; CHANGELOG ve push.
 
 ## Notlar
+
+- `report_ready_for_test` Rust'ta henüz çağrılmıyor (Python'da ClickUp akışı kullanır).
 
 - Python `/doctor` Python sürüm satırı yerine çalıştırılabilir yolunu basar.
 - `/resume playbook` Faz 4'e kadar Faz 4 mesajı verir.

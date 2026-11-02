@@ -19,6 +19,7 @@ use evren_core::{models, texts, EvrenError};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 mod headless;
+mod plan;
 mod stdio;
 
 #[derive(Parser, Debug)]
@@ -143,8 +144,20 @@ enum Command {
     Debug,
     /// Yinelemeli geliştirme
     Iterate,
-    /// Plan dosyasını çalıştır
-    Plan { plan_file: String },
+    /// Planlayıcının JSON adım listesini LLM'siz, refleks hızında çalıştır
+    Plan {
+        plan_file: String,
+        #[arg(long)]
+        dry_run: bool,
+        /// push adımlarına izin ver (kullanıcı onayı)
+        #[arg(long)]
+        allow_push: bool,
+        /// N. adımdan devam et
+        #[arg(long = "from", default_value_t = 1)]
+        start: usize,
+        #[arg(long, short = 'w')]
+        workspace: Option<PathBuf>,
+    },
     /// Terminal modu
     Terminal,
     /// SSH yönetimi (add/rm/test/run)
@@ -660,6 +673,34 @@ async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
                 None => workspace.clone(),
             };
             Ok(evren_tui::docs::cli_command(&config, &root, &docs_action, adopt, yes))
+        }
+        Some(Command::Plan {
+            plan_file,
+            dry_run,
+            allow_push,
+            start,
+            workspace: target,
+        }) => {
+            let root = match target {
+                Some(t) => get_workspace_dir(Some(&t)),
+                None => workspace.clone(),
+            };
+            // reqwest::blocking tokio iş parçacığında çalışamaz.
+            let res = tokio::task::spawn_blocking(move || {
+                plan::run_plan(&plan_file, &root, dry_run, allow_push, start)
+            })
+            .await;
+            Ok(match res {
+                Ok(Ok(code)) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
+                Ok(Err(e)) => {
+                    print_error(&e);
+                    ExitCode::from(1)
+                }
+                Err(e) => {
+                    print_error(&e.to_string());
+                    ExitCode::from(1)
+                }
+            })
         }
         None => {
             config.require_api_key()?;

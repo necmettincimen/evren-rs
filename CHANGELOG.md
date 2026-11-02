@@ -25,6 +25,8 @@ sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kura
 
 ### Sonraki sürüm
 - Yapıldı (main): `memory_save` ve `web_fetch` araçları.
+- Yapıldı (main): `evren plan <plan.json> [--dry-run] [--allow-push] [--from N] [-w]`
+  (plan_runner, plan_agent, uzak adımlar; worktree, ajan slotları, verify kapısı).
 - Yapıldı (main, 4.1.0'a girecek): `/context`, `/compact`, `/rewind`, `/doctor`, `/rol`,
   `/commit`, `/review`, `/init`, `/files`, `/add`, `/drop`, `/scan`, `/run`, `/memory`,
   `/language`, `/resume`, `/keys`, `/debug` ve `.evren/commands/*.md` özel komutları;
