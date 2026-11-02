@@ -29,11 +29,21 @@ Hedef: 4.0.0 üzerine Python sürümüyle parite; sürüm 4.1.0. Ayrıntılı 4.
    - Plan kipi sonrası "Planı uygula? [e/H]"; netleştirme bağlamına proje özeti.
    - Testler: `test_project_docs.py` (13 test) taşındı.
 
+4. Faz 4 (kısmi, commit `6f60e94`):
+   - `memory_save` aracı (`memory::add_note`, global/proje kapsamı; metin kasada maskelenir).
+   - `web_fetch` aracı (`evren-core` `tools/web_fetch`: reqwest blocking, HTML→metin, bayt/karakter
+     sınırı, ikili içerik reddi, `ssl_verify`); URL kasadan açılır.
+   - Doğrulama: `cargo test` 262 geçti, clippy temiz.
+
 ## Kalanlar (sırayla)
 
 4. Faz 4:
-   - memory aracı (`memory_save`), `web_fetch`.
-   - `plan_runner`/`plan_agent` (`evren plan`, `.evren/logs` biçimi).
+   - `plan_runner`/`plan_agent`/`plan_ops_remote` (`evren plan <plan.json> --dry-run --allow-push
+     --from N -w`). Python günlükleri `reports/agent-logs/<plan>-<i>-a<deneme>.log` yazar (`.evren/logs`
+     değil); worktree `.evren/worktrees/<etiket>`, dal `evren/<etiket>`, slotlar
+     `~/.evren/slots/slot-N.lock` (`EVREN_MAX_PARALLEL`). Tasarım: `crates/evren-cli/src/plan/`
+     (mod/agent/remote), ajan çalıştırıcısı testte değiştirilebilir; `tests/test_plan_agent.py`
+     testleri taşınacak.
    - Komutlar: skills, playbook, template, track/task/progress/checkpoint/blockers/check-in/decisions.
    - SSH araçları ve `/ssh`, `/iterate`, `output_summary`, `tool_gateway`, TOML rolleri.
 5. Kapanış:

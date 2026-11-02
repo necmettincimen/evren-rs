@@ -24,6 +24,7 @@ sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kura
   `evren-py` olarak kalır).
 
 ### Sonraki sürüm
+- Yapıldı (main): `memory_save` ve `web_fetch` araçları.
 - Yapıldı (main, 4.1.0'a girecek): `/context`, `/compact`, `/rewind`, `/doctor`, `/rol`,
   `/commit`, `/review`, `/init`, `/files`, `/add`, `/drop`, `/scan`, `/run`, `/memory`,
   `/language`, `/resume`, `/keys`, `/debug` ve `.evren/commands/*.md` özel komutları;
