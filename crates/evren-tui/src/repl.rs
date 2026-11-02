@@ -22,7 +22,9 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::commands::{canonical, is_command_input, unknown_command_message};
 use crate::events::{EventPrinter, StdinPrompter};
+use crate::handlers;
 use crate::input::{make_reader, EscWatcher, InputQueue, LineReader, ReadResult, WatchPause};
 use crate::shell;
 use crate::ui::{self, print_error, print_info, print_success, print_warning, thousands};
@@ -100,11 +102,6 @@ const PHASE4_COMMANDS: &[&str] = &[
 
 /// Faz 3'ün sonraki adımlarında taşınacak çekirdek komutlar.
 const PENDING_COMMANDS: &[&str] = &[
-    "/effort",
-    "/models",
-    "/quota",
-    "/status",
-    "/tokens",
     "/context",
     "/compact",
     "/files",
@@ -113,9 +110,7 @@ const PENDING_COMMANDS: &[&str] = &[
     "/rewind",
     "/run",
     "/debug",
-    "/steps",
     "/keys",
-    "/terms",
     "/doctor",
     "/rol",
     "/scan",
@@ -130,10 +125,6 @@ const PENDING_COMMANDS: &[&str] = &[
 
 pub fn phase4_message(cmd: &str) -> String {
     format!("{cmd} komutu Faz 4'te gelecek; bu sürümde henüz yok.")
-}
-
-pub fn unknown_command_message(cmd: &str) -> String {
-    format!("Bilinmeyen komut: '{cmd}'. Komut listesi için /help yazın.")
 }
 
 /// REPL başlatma seçenekleri (`evren` argümansız).
@@ -405,7 +396,7 @@ impl Repl {
                     self.run_turn(Turn::Continue).await;
                     continue;
                 }
-                if !text.starts_with('/') {
+                if !is_command_input(&text) {
                     self.run_turn(Turn::Step(text)).await;
                     continue;
                 }
@@ -432,7 +423,7 @@ impl Repl {
             shell::run_user_shell(&text, session, shell::SHELL_TIMEOUT).await;
             return Flow::Continue;
         }
-        if text.starts_with('/') {
+        if is_command_input(&text) {
             return self.command(&text).await;
         }
         if is_execution_followup(&text) {
@@ -504,20 +495,21 @@ impl Repl {
     }
 
     async fn command(&mut self, text: &str) -> Flow {
-        let (cmd, arg) = match text.split_once(char::is_whitespace) {
-            Some((c, a)) => (c.to_lowercase(), a.trim().to_string()),
-            None => (text.to_lowercase(), String::new()),
+        let (typed, arg) = match text.split_once(char::is_whitespace) {
+            Some((c, a)) => (c.to_string(), a.trim().to_string()),
+            None => (text.to_string(), String::new()),
         };
+        let cmd = canonical(&typed);
         let Some(session) = self.session.as_mut() else {
             return Flow::Exit;
         };
         match cmd.as_str() {
-            "/exit" | "/quit" | "/q" => {
+            "/exit" => {
                 print_info("EVREN CLI sonlandırılıyor. İyi çalışmalar!");
                 return Flow::Exit;
             }
-            "/help" | "/h" | "/?" => println!("{HELP_TEXT}"),
-            "/version" | "/ver" | "/v" => {
+            "/help" => println!("{HELP_TEXT}"),
+            "/version" => {
                 let ver = evren_core::VERSION;
                 print_info(&format!("EVREN CLI Sürümü: v{ver}"));
                 let notes = ui::release_notes(20);
@@ -574,7 +566,7 @@ v{ver} Sürüm Notları:"
                 session.clear_history();
                 print_success("Sohbet geçmişi, kalıp ve aktif bağlam temizlendi.");
             }
-            "/undo" | "/rollback" => {
+            "/undo" => {
                 if arg.is_empty() {
                     print_warning("Kullanım: /undo <dosya_yolu>");
                 } else {
@@ -615,9 +607,15 @@ v{ver} Sürüm Notları:"
                     self.run_turn(Turn::Execute(arg)).await;
                 }
             }
+            "/effort" => handlers::effort(session, &arg),
+            "/models" => handlers::models(session).await,
+            "/quota" => handlers::quota(session).await,
+            "/terms" => handlers::terms(session, &arg, &mut TuiTermsUi).await,
+            "/tokens" => handlers::tokens(session),
+            "/steps" => handlers::steps(session, &arg),
             c if PHASE4_COMMANDS.contains(&c) => print_warning(&phase4_message(c)),
             c if PENDING_COMMANDS.contains(&c) => print_warning(texts::NOT_PORTED_YET),
-            c => print_warning(&unknown_command_message(c)),
+            _ => print_warning(&unknown_command_message(&typed)),
         }
         Flow::Continue
     }
@@ -699,6 +697,33 @@ mod tests {
     fn phase4_and_unknown_messages() {
         assert!(phase4_message("/skills").contains("Faz 4'te"));
         assert!(unknown_command_message("/xyz").starts_with("Bilinmeyen komut: '/xyz'."));
+        for (cmd, _) in crate::commands::COMMAND_ALIASES {
+            let handled = matches!(
+                *cmd,
+                "/exit"
+                    | "/help"
+                    | "/version"
+                    | "/model"
+                    | "/mode"
+                    | "/todos"
+                    | "/bg"
+                    | "/clear"
+                    | "/undo"
+                    | "/auto"
+                    | "/continue"
+                    | "/execute"
+                    | "/effort"
+                    | "/models"
+                    | "/quota"
+                    | "/terms"
+                    | "/tokens"
+                    | "/steps"
+            );
+            assert!(
+                handled || PHASE4_COMMANDS.contains(cmd) || PENDING_COMMANDS.contains(cmd),
+                "{cmd}"
+            );
+        }
         assert!(HELP_TEXT.contains("/exit         - Çıkış"));
     }
 }
