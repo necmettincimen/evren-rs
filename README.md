@@ -19,6 +19,16 @@ cargo clippy --all-targets -- -D warnings
 
 ## Kurulum (Windows)
 
+Yeni bilgisayarda önce Rust araç zinciri (GNU hedefi) ve depo:
+
+```bash
+winget install --id Rustlang.Rustup -e
+rustup default stable-x86_64-pc-windows-gnu
+git clone https://github.com/necmettincimen/evren-rs.git
+```
+
+Kurulum ve sürüm yükseltme aynı komut (depo klasöründe):
+
 ```bash
 powershell -ExecutionPolicy Bypass -File scripts/install.ps1
 ```
@@ -26,19 +36,25 @@ powershell -ExecutionPolicy Bypass -File scripts/install.ps1
 Betik şunları yapar:
 
 1. `cargo build --release` (atlamak için `-NoBuild`).
-2. `target\release\evren.exe` dosyasını `%LOCALAPPDATA%\evren\bin\evren.exe` ve
-   `%USERPROFILE%\.evren-cli\bin\evren.exe` konumlarına kopyalar. İkincisi sistem `PATH`'inde
-   önde durduğu için değiştirilir; `PATH`'in kendisine dokunulmaz.
+2. `targetelease\evren.exe` dosyasını `%LOCALAPPDATA%\evrenin\evren.exe` konumuna, varsa
+   `%USERPROFILE%\.evren-cliin\evren.exe` konumuna da kopyalar (eski Python başlatıcısı
+   sistem `PATH`'inde önde durduğu için değiştirilir).
 3. Yerine konan her Python başlatıcısını önce `evren.exe.bak-<tarih>` olarak yedekler.
-4. Python sürümünü `evren-py` adıyla bırakır (`%LOCALAPPDATA%\evren\bin\evren-py.cmd`).
+4. Python sürümü kuruluysa `evren-py` adıyla bırakır (`%LOCALAPPDATA%\evrenin\evren-py.cmd`).
+5. `%LOCALAPPDATA%\evrenin` kullanıcı `PATH`'inde yoksa başa ekler (yeni terminal gerekir).
 
-Doğrulama:
+Sürüm yükseltme: `git pull` ardından aynı betik; önceki Rust kurulumunun üzerine yazar.
+
+Doğrulama (yeni terminalde):
 
 ```bash
 where evren
 evren --version
-evren-py --version
 ```
+
+API anahtarı ve model: `evren` açıp `/keys` ile ekle ya da başka makinedeki
+`%LOCALAPPDATA%\evrenin\config.json` dosyasını kopyala (depoya koyma). evren-sdlc için
+`~/.evren-sdlc.toml` içinde `command = ["evren"]`.
 
 ## Geri alma
 
