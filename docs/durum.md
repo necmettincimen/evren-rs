@@ -46,3 +46,6 @@ Hedef: 4.0.0 üzerine Python sürümüyle parite; sürüm 4.1.0. Ayrıntılı 4.
 - REPL'de `EVREN_FORM_FIELDS` kapalıyken boş Brief hiçbir şey yapmaz (Python son kalıbı yeniden
   çalıştırır). Netleştirme bağlamına docs özeti 3. maddede eklenecek.
 - `evren agent` docs önyüklemesi (`ensure_project_docs`) 3. maddeye kaldı.
+- `cargo test -- --ignored` (Python oracle) 3.12.0+ ister; `../evren-cli` `master` 3.11.0'da
+  olduğundan 5 test düşer. 3.12.2 (`claude/evren-sdlc-faz0-ce3b75`) kopyasıyla
+  `EVREN_CLI_ROOT=<kopya>` verilince 18/18 geçer.
