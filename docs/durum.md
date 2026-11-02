@@ -2,7 +2,7 @@
 
 4.1.2 kapanan açıklar (4.1.1 üzerine):
 - Güncelleyici: ertelenen `install.ps1` çıktısı `.evren/logs/update.log`'a yazılır; kilitli
-  `targetelease\evren.exe` `evren.exe.running-<pid>` adına çekilir (`scripts/install.ps1` de);
+  `target\release\evren.exe` `evren.exe.running-<pid>` adına çekilir (`scripts/install.ps1` de);
   kirli çalışma ağacı uyarısı (`c605eb6`).
 - `ToolContext` sır kasası: komutlar kasadan açılır, çıktı maskeli kalır (`b720037`).
 - `evren scan` uzantıları ilk görülme sırasıyla, Python `rglob` sırasında (`0efa2b3`).
