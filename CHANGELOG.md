@@ -24,9 +24,11 @@ sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kura
   `evren-py` olarak kalır).
 
 ### Sonraki sürüm
-- Kalan REPL slash komutları (`/context`, `/compact`, `/rewind`, `/doctor`, `/rol`, `/commit`,
-  `/review`, `/init`, `/files`, `/add`, `/drop`, `/scan`, `/run`, `/memory`, `/language`,
-  `/resume`, `/keys`, `/debug`, `/docs`, `/skills`) ve `.evren/commands/*.md` özel komutları.
+- Yapıldı (main, 4.1.0'a girecek): `/context`, `/compact`, `/rewind`, `/doctor`, `/rol`,
+  `/commit`, `/review`, `/init`, `/files`, `/add`, `/drop`, `/scan`, `/run`, `/memory`,
+  `/language`, `/resume`, `/keys`, `/debug` ve `.evren/commands/*.md` özel komutları;
+  `/clear` checkpoint'i siler.
+- Kalan: `/docs`, `/skills` ve Faz 4 komutları.
 - REPL prompt çerçevesi (`--rol/--cerceve/--brief/--kisit/--cikti`, form akışı).
 - `agent.md` yönetilen blokları, `plan_runner`, SSH araçları, skills, memory, `web_fetch`.
 - TOML rol dosyaları (bu sürümde yalnız JSON).
