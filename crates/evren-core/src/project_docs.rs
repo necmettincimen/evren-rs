@@ -466,7 +466,8 @@ pub fn project_map_body(root: &Path) -> String {
         .cloned()
         .collect();
     let own_count = stats.files.len() - files.len();
-    let mut exts = stats.extension_counts.clone();
+    let mut exts: std::collections::BTreeMap<String, usize> =
+        stats.extension_counts.iter().cloned().collect();
     if own_count > 0 {
         let md = exts
             .get(".md")

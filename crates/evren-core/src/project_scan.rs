@@ -1,6 +1,5 @@
 //! Çalışma alanı tarayıcı ve dosya ağacı (Python `project_scanner.py`).
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::tools::file_ops::{safe_read_file, READ_MAX_CHARS};
@@ -31,9 +30,20 @@ pub const CODE_EXTENSIONS: &[&str] = &[
 pub struct ScanResult {
     pub root: String,
     pub files: Vec<String>,
-    pub extension_counts: BTreeMap<String, usize>,
+    /// Uzantı → dosya sayısı, ilk görülme sırasıyla (Python `dict`).
+    pub extension_counts: Vec<(String, usize)>,
     pub total_files: usize,
     pub total_size_kb: f64,
+}
+
+impl ScanResult {
+    /// Uzantının dosya sayısı (yoksa 0).
+    pub fn ext_count(&self, ext: &str) -> usize {
+        self.extension_counts
+            .iter()
+            .find(|(e, _)| e == ext)
+            .map_or(0, |(_, c)| *c)
+    }
 }
 
 fn ignored(name: &str) -> bool {
@@ -50,61 +60,83 @@ fn resolved(root: &Path) -> PathBuf {
     crate::tools::file_ops::resolve_path(root)
 }
 
+/// Dizinin (yok sayılmayan) dosyaları ve alt dizinleri; NTFS'teki gibi büyük/küçük
+/// harf duyarsız ad sırası.
+fn list_dir(dir: &Path) -> (Vec<std::fs::DirEntry>, Vec<std::path::PathBuf>) {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return (Vec::new(), Vec::new());
+    };
+    let mut entries: Vec<_> = rd
+        .flatten()
+        .filter(|e| !ignored(&e.file_name().to_string_lossy()))
+        .collect();
+    entries.sort_by_key(|e| e.file_name().to_string_lossy().to_uppercase());
+    let mut files = Vec::new();
+    let mut dirs = Vec::new();
+    for entry in entries {
+        match entry.file_type() {
+            Ok(ft) if ft.is_dir() => dirs.push(entry.path()),
+            Ok(_) => files.push(entry),
+            Err(_) => {}
+        }
+    }
+    (files, dirs)
+}
+
 /// Kod/metin dosyalarını tarar (en çok `max_files`, dosya başına `max_file_size_kb`).
 pub fn scan_workspace(root: &Path, max_files: usize, max_file_size_kb: f64) -> ScanResult {
     let root = resolved(root);
     let mut files = Vec::new();
-    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut counts: Vec<(String, usize)> = Vec::new();
     let mut total = 0.0;
-    let mut stack = vec![root.clone()];
-    'walk: while let Some(dir) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            continue;
+    let mut add = |entry: &std::fs::DirEntry| -> bool {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let path = entry.path();
+        let ext = suffix(&path);
+        if !CODE_EXTENSIONS.contains(&ext.as_str())
+            && !matches!(name.as_str(), "Dockerfile" | "Makefile" | "LICENSE")
+        {
+            return false;
+        }
+        let Ok(meta) = entry.metadata() else {
+            return false;
         };
-        let mut entries: Vec<_> = rd.flatten().collect();
-        entries.sort_by_key(|e| e.file_name());
-        for entry in entries {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if ignored(&name) {
-                continue;
-            }
-            let path = entry.path();
-            let Ok(ft) = entry.file_type() else {
-                continue;
-            };
-            if ft.is_dir() {
-                stack.push(path);
-                continue;
-            }
-            let ext = suffix(&path);
-            if !CODE_EXTENSIONS.contains(&ext.as_str())
-                && !matches!(name.as_str(), "Dockerfile" | "Makefile" | "LICENSE")
-            {
-                continue;
-            }
-            let Ok(meta) = entry.metadata() else {
-                continue;
-            };
-            let size_kb = meta.len() as f64 / 1024.0;
-            if size_kb > max_file_size_kb {
-                continue;
-            }
-            let rel = path
-                .strip_prefix(&root)
-                .map(|p| p.to_string_lossy().replace('\\', "/"))
-                .unwrap_or_default();
-            files.push(rel);
-            let key = if ext.is_empty() {
-                "no_ext".to_string()
-            } else {
-                ext
-            };
-            *counts.entry(key).or_insert(0) += 1;
-            total += size_kb;
-            if files.len() >= max_files {
+        let size_kb = meta.len() as f64 / 1024.0;
+        if size_kb > max_file_size_kb {
+            return false;
+        }
+        let rel = path
+            .strip_prefix(&root)
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_default();
+        files.push(rel);
+        let key = if ext.is_empty() {
+            "no_ext".to_string()
+        } else {
+            ext
+        };
+        match counts.iter_mut().find(|(e, _)| *e == key) {
+            Some((_, c)) => *c += 1,
+            None => counts.push((key, 1)),
+        }
+        total += size_kb;
+        files.len() >= max_files
+    };
+    // Python 3.12 `rglob("*")` sırası: kökün dosyaları, sonra `Path.walk` (derinlik
+    // öncelikli) ile gezilen her dizinin tüm alt dizinlerinin dosyaları sırayla.
+    let (root_files, root_dirs) = list_dir(&root);
+    let full = root_files.iter().any(&mut add);
+    let mut walk = if full { Vec::new() } else { vec![root_dirs] };
+    'walk: while let Some(children) = walk.pop() {
+        let mut grandchildren = Vec::with_capacity(children.len());
+        for child in children {
+            let (child_files, child_dirs) = list_dir(&child);
+            if child_files.iter().any(&mut add) {
                 break 'walk;
             }
+            grandchildren.push(child_dirs);
         }
+        walk.extend(grandchildren.into_iter().rev());
     }
     files.sort();
     ScanResult {
@@ -206,8 +238,23 @@ mod tests {
         std::fs::write(dir.path().join("node_modules/x/a.js"), "x").unwrap();
         let r = scan_workspace(dir.path(), 150, 250.0);
         assert_eq!(r.files, vec!["Makefile", "src/main.rs"]);
-        assert_eq!(r.extension_counts["no_ext"], 1);
-        assert_eq!(r.extension_counts[".rs"], 1);
+        assert_eq!(r.ext_count("no_ext"), 1);
+        assert_eq!(r.ext_count(".rs"), 1);
+    }
+
+    #[test]
+    fn extension_counts_keep_first_seen_order() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("a_dir")).unwrap();
+        std::fs::write(dir.path().join("z.py"), "x").unwrap();
+        std::fs::write(dir.path().join("b.toml"), "x").unwrap();
+        std::fs::write(dir.path().join("a_dir/m.rs"), "x").unwrap();
+        std::fs::write(dir.path().join("a_dir/n.py"), "x").unwrap();
+        let r = scan_workspace(dir.path(), 150, 250.0);
+        let order: Vec<&str> = r.extension_counts.iter().map(|(e, _)| e.as_str()).collect();
+        // Kök dosyaları (b.toml, z.py) alt dizinden (a_dir) önce gelir.
+        assert_eq!(order, vec![".toml", ".py", ".rs"]);
+        assert_eq!(r.ext_count(".py"), 2);
     }
 
     #[test]
