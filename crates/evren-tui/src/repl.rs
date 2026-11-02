@@ -82,6 +82,9 @@ EVREN CLI Komutları:
 fn update() -> bool {
     use crate::updater;
     print_info(&updater::source_line());
+    if let Some(warn) = updater::dirty_tree_warning() {
+        crate::ui::print_warning(&warn);
+    }
     print_info(updater::SPINNER_TEXT);
     let (ok, msg) = updater::perform_update();
     if !ok {

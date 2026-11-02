@@ -51,6 +51,23 @@ if (-not $NoBuild) {
         $env:Path = "$($found.DirectoryName);$env:Path"
         Write-Host "[*] dlltool: $($found.FullName)"
     }
+    # Çalışan target\release\evren.exe kilitlidir; Windows silmeye izin vermez ama yeniden
+    # adlandırmaya izin verir. Linker'ın üzerine yazabilmesi için kenara alınır.
+    $releaseExe = Join-Path $repo 'target\release\evren.exe'
+    Get-ChildItem (Join-Path $repo 'target\release') -Filter 'evren.exe.running-*' -ErrorAction SilentlyContinue |
+        ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
+    if (Test-Path $releaseExe) {
+        $locked = $false
+        try { [IO.File]::Open($releaseExe, 'Open', 'ReadWrite', 'None').Close() } catch { $locked = $true }
+        if ($locked) {
+            $proc = Get-Process -Name evren -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -eq $releaseExe } | Select-Object -First 1
+            $tag = if ($proc) { $proc.Id } else { $stamp }
+            $moved = "$releaseExe.running-$tag"
+            Move-Item $releaseExe $moved -Force
+            Write-Host "[*] çalışan ikili kenara alındı: $moved"
+        }
+    }
     Write-Host '[*] cargo build --release'
     Push-Location $repo
     try {

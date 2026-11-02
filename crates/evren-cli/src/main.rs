@@ -458,6 +458,9 @@ impl TermsUi for CliTermsUi {
 fn cmd_update(no_restart: bool) -> ExitCode {
     use evren_tui::updater;
     print_info(&updater::source_line());
+    if let Some(warn) = updater::dirty_tree_warning() {
+        evren_tui::ui::print_warning(&warn);
+    }
     print_info(updater::SPINNER_TEXT);
     let (ok, msg) = updater::perform_update();
     if !ok {

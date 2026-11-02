@@ -281,16 +281,51 @@ fn ps_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
+/// Çalışan (kilitli) `target\release\evren.exe`'yi `evren.exe.running-<pid>` adına taşır;
+/// Windows çalışan ikilinin silinmesine değil yeniden adlandırılmasına izin verir.
+fn set_aside_running_exe(root: &Path) -> Option<PathBuf> {
+    let exe = root.join("target").join("release").join("evren.exe");
+    if !exe.is_file() {
+        return None;
+    }
+    if std::fs::OpenOptions::new().write(true).open(&exe).is_ok() {
+        return None;
+    }
+    let same = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.canonicalize().ok())
+        .zip(exe.canonicalize().ok())
+        .is_some_and(|(a, b)| a == b);
+    let tag = if same {
+        std::process::id().to_string()
+    } else {
+        chrono::Local::now().format("%Y%m%d-%H%M%S").to_string()
+    };
+    let moved = exe.with_file_name(format!("evren.exe.running-{tag}"));
+    match std::fs::rename(&exe, &moved) {
+        Ok(()) => {
+            log(&format!("SET ASIDE: {} -> {}", exe.display(), moved.display()));
+            Some(moved)
+        }
+        Err(e) => {
+            log(&format!("WARN: kilitli ikili taşınamadı: {e}"));
+            None
+        }
+    }
+}
+
 /// Kurulumu bu süreç `evren.exe`'yi bıraktıktan sonra yeni pencerede çalıştırır.
 fn schedule_deferred_install(root: &Path) -> Result<String, String> {
     let script = root.join("scripts").join("install.ps1");
+    set_aside_running_exe(root);
     let log_file = log_path();
     let body = format!(
         "$ErrorActionPreference = 'Continue'\n\
          Wait-Process -Id {pid} -ErrorAction SilentlyContinue\n\
          Start-Sleep -Seconds 2\n\
          Write-Host 'EVREN CLI güncelleniyor...'\n\
-         & powershell -NoProfile -ExecutionPolicy Bypass -File {script}\n\
+         Add-Content -Path {log} -Value (\"[\" + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + \"] DEFERRED INSTALL: {script}\") -Encoding utf8\n\
+         & powershell -NoProfile -ExecutionPolicy Bypass -File {script} 2>&1 | ForEach-Object {{ $line = \"$_\"; Write-Host $line; Add-Content -Path {log} -Value $line -Encoding utf8 }}\n\
          $code = $LASTEXITCODE\n\
          Add-Content -Path {log} -Value (\"[\" + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + \"] DEFERRED INSTALL: EXIT $code\") -Encoding utf8\n\
          if ($code -eq 0) {{ Write-Host 'Güncelleme tamamlandı; evren komutunu yeniden açabilirsiniz.' }} \
@@ -331,6 +366,38 @@ fn schedule_deferred_install(root: &Path) -> Result<String, String> {
             Err(format!("Ertelenmiş güncelleme başlatılamadı: {e}"))
         }
     }
+}
+
+/// `git status --porcelain` çıktısından takip edilen değişiklikleri sayar.
+fn count_dirty(porcelain: &str) -> usize {
+    porcelain
+        .lines()
+        .filter(|l| !l.trim().is_empty() && !l.starts_with("??"))
+        .count()
+}
+
+/// Çalışma ağacında commit'lenmemiş değişiklik varsa güncelleme öncesi uyarı metni.
+pub fn dirty_tree_warning() -> Option<String> {
+    let root = get_project_root();
+    if !is_git_checkout(&root) {
+        return None;
+    }
+    let (code, out) = run(
+        &["git", "status", "--porcelain"],
+        Some(&root),
+        Duration::from_secs(30),
+    );
+    let n = if code == 0 { count_dirty(&out) } else { 0 };
+    if n == 0 {
+        return None;
+    }
+    let msg = format!(
+        "Çalışma ağacında {n} commit'lenmemiş değişiklik var ({}); \
+         git pull çakışırsa güncelleme başarısız olur, derleme yerel değişiklikleri içerir.",
+        root.display()
+    );
+    log(&format!("WARN: {msg}"));
+    Some(msg)
 }
 
 /// Güncellemeyi yapar: (başarılı mı, mesaj). Yeniden başlatma çağırana kalır.
@@ -463,5 +530,12 @@ mod tests {
     #[test]
     fn ps_quoting() {
         assert_eq!(ps_quote("C:\\a'b"), "'C:\\a''b'");
+    }
+
+    #[test]
+    fn dirty_count_ignores_untracked() {
+        assert_eq!(count_dirty(""), 0);
+        assert_eq!(count_dirty("?? plans/x.md\n"), 0);
+        assert_eq!(count_dirty(" M src/a.rs\n?? b\nA  c.rs\n"), 2);
     }
 }
