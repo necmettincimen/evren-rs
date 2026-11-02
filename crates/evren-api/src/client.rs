@@ -235,6 +235,16 @@ impl ApiClient {
         self.key_min_remaining
     }
 
+    /// `/effort`: geçerli düşünme yoğunluğu.
+    pub fn reasoning_effort(&self) -> Option<String> {
+        lock(&self.reasoning_effort).clone()
+    }
+
+    /// `/effort <low|medium|high|off>`: düşünme yoğunluğunu değiştirir.
+    pub fn set_reasoning_effort(&self, effort: Option<String>) {
+        *lock(&self.reasoning_effort) = effort;
+    }
+
     pub fn base_url(&self) -> &str {
         &self.base_url
     }

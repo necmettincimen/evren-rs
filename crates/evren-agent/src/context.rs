@@ -311,7 +311,38 @@ pub fn compose_system(
     if !git_block.is_empty() {
         blocks.push(git_block.to_string());
     }
+    let role = role_context_block(workspace_root);
+    if !role.is_empty() {
+        blocks.push(role);
+    }
     format!("{}\n\n{}", base.trim_end(), blocks.join("\n\n"))
+}
+
+/// `.evren/settings.json` içindeki `role` alanı (`/rol`); yoksa boş dize.
+pub fn persistent_role(workspace_root: &Path) -> String {
+    let path = evren_core::config::get_evren_dir(workspace_root).join("settings.json");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return String::new();
+    };
+    let text = text.trim_start_matches('\u{feff}');
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .and_then(|v| {
+            v.get("role")
+                .and_then(|r| r.as_str())
+                .map(|s| s.trim().to_string())
+        })
+        .unwrap_or_default()
+}
+
+/// Kalıcı rol için sistem bloğu (`role_context_block`); ayarlı değilse boş.
+pub fn role_context_block(workspace_root: &Path) -> String {
+    let role = persistent_role(workspace_root);
+    if role.is_empty() {
+        String::new()
+    } else {
+        format!("KALICI ROL (kullanıcı ayarı, her görevde geçerli)\nRol: {role}")
+    }
 }
 
 #[cfg(test)]

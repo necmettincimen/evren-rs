@@ -10,6 +10,9 @@ repository = "https://github.com/necmettincimen/evren-rs"
 rust-version = "1.80"
 
 [workspace.dependencies]
+reedline = "0.52"
+termimad = "0.35"
+crossterm = "0.29"
 evren-core = { path = "crates/evren-core" }
 evren-api = { path = "crates/evren-api" }
 evren-protocol = { path = "crates/evren-protocol" }

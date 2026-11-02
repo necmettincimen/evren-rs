@@ -7,6 +7,7 @@ pub mod guards;
 pub mod history;
 pub mod mentions;
 pub mod modes;
+pub mod prompt_frame;
 pub mod route;
 pub mod session;
 pub mod sessions;

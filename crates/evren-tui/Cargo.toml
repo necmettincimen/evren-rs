@@ -5,6 +5,21 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+evren-core.workspace = true
+evren-api.workspace = true
+evren-agent.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+dirs.workspace = true
+reedline.workspace = true
+termimad.workspace = true
+crossterm.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

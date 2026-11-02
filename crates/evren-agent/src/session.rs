@@ -26,6 +26,7 @@ use tokio_util::sync::CancellationToken;
 use crate::compaction::{truncate_tool_content, HistoryCompactor};
 use crate::context::{compose_system, git_context_block, SYSTEM_PROMPT};
 use crate::guards::{RepeatGuard, TASK_NOISE_PREFIXES};
+use crate::prompt_frame::{self, PromptFrame};
 use crate::route::ExecProfile;
 use crate::todos::TodoStore;
 use crate::token_manager::TokenManager;
@@ -127,6 +128,8 @@ pub struct AgentSession {
     pub(crate) model: String,
     pub(crate) system_prompt: String,
     pub(crate) git_block: String,
+    /// Kalıcı Rol/Çerçeve (`apply_frame`); `/clear` sıfırlar.
+    pub(crate) frame: PromptFrame,
     pub(crate) auto_approve: bool,
     pub(crate) messages: Vec<Value>,
     pub(crate) token_manager: TokenManager,
@@ -204,6 +207,7 @@ impl AgentSession {
             messages: vec![json!({"role": "system", "content": system_prompt})],
             system_prompt,
             git_block,
+            frame: PromptFrame::default(),
             auto_approve,
             compactor,
             reads: HashMap::new(),
@@ -323,6 +327,68 @@ impl AgentSession {
         &self.config
     }
 
+    /// Araç bağlamı (arka plan süreçleri, kabuk ayarları).
+    pub fn tool_ctx(&self) -> &Arc<ToolContext> {
+        &self.tool_ctx
+    }
+
+    /// Son görevin araç çağrısı kayıtları (`/rewind`).
+    pub fn tool_trace(&self) -> &[ToolTraceRecord] {
+        &self.tool_trace
+    }
+
+    pub fn max_steps(&self) -> Option<u32> {
+        self.max_steps
+    }
+
+    pub fn client(&self) -> &Arc<ApiClient> {
+        &self.client
+    }
+
+    pub fn token_manager(&self) -> &TokenManager {
+        &self.token_manager
+    }
+
+    pub fn set_interrupted(&mut self, interrupted: bool) {
+        self.interrupted = interrupted;
+    }
+
+    /// `/compact [odak]`: geçmişi şimdi sıkıştırır; (önce, sonra) tahmini token döner.
+    pub fn compact_now(&mut self, focus: &str) -> (i64, i64) {
+        let before = self.token_manager.estimate_messages(&self.messages);
+        let mut messages = self.messages.clone();
+        let focus = focus.trim();
+        if !focus.is_empty() {
+            messages.push(json!({
+                "role": "user",
+                "content": format!("Sıkıştırırken şuna odaklan: {focus}"),
+            }));
+        }
+        let output_budget = i64::from(
+            self.token_manager
+                .resolve_output_budget(&self.model, Some(4096)),
+        );
+        let limit = ((before as f64) * 0.3) as i64;
+        let limit = limit.max(1024);
+        let mut compacted =
+            self.compactor
+                .compact(&self.token_manager, &messages, output_budget, Some(limit));
+        if !focus.is_empty() {
+            let drop_last = compacted
+                .last()
+                .and_then(|m| m.get("content"))
+                .and_then(Value::as_str)
+                .is_some_and(|c| c.starts_with("Sıkıştırırken şuna"));
+            if drop_last {
+                compacted.pop();
+            }
+        }
+        self.messages = compacted;
+        self.guard.forget_seen_calls();
+        let after = self.token_manager.estimate_messages(&self.messages);
+        (before, after)
+    }
+
     /// `/steps <n>`: oturum adım tavanı (`None` → varsayılan).
     pub fn set_max_steps(&mut self, max_steps: Option<u32>) {
         self.max_steps = max_steps;
@@ -331,6 +397,53 @@ impl AgentSession {
     pub fn set_model(&mut self, new_model: &str) {
         self.model = new_model.to_string();
         self.sync_window();
+    }
+
+    /// Kalıcı Rol/Çerçeve kalıbı.
+    pub fn frame(&self) -> &PromptFrame {
+        &self.frame
+    }
+
+    /// Sistem iletisini temel + bloklar + kalıp olarak yeniden kurar (`refresh_context`).
+    pub fn refresh_context(&mut self) {
+        let base = compose_system(
+            SYSTEM_PROMPT,
+            &self.workspace_root,
+            &self.config,
+            &self.git_block,
+        );
+        self.system_prompt = prompt_frame::compose_system(&base, &self.frame);
+        if let Some(first) = self.messages.first_mut() {
+            if first.get("role").and_then(Value::as_str) == Some("system") {
+                first["content"] = Value::String(self.system_prompt.clone());
+            }
+        }
+    }
+
+    /// Rol/Çerçeve'yi sistem iletisine işler, kullanıcı metnini döndürür (`apply_frame`).
+    /// Boş alanlar önceki kimliği silmez; `replace_identity` kimliği sıfırlar.
+    pub fn apply_frame(
+        &mut self,
+        frame: &PromptFrame,
+        extra: &str,
+        replace_identity: bool,
+    ) -> String {
+        if replace_identity {
+            self.frame = PromptFrame::default();
+        }
+        if !frame.rol.is_empty() {
+            self.frame.rol = frame.rol.clone();
+        }
+        if !frame.cerceve.is_empty() {
+            self.frame.cerceve = frame.cerceve.clone();
+        }
+        self.refresh_context();
+        prompt_frame::build_user_content(frame, extra)
+    }
+
+    /// Geçmişe model yanıtı beklemeyen bir kullanıcı notu ekler (`!` kabuk kipi).
+    pub fn push_user_message(&mut self, text: &str) {
+        self.messages.push(json!({"role": "user", "content": text}));
     }
 
     pub(crate) fn sync_window(&mut self) {
@@ -358,6 +471,7 @@ impl AgentSession {
             &self.config,
             &self.git_block,
         );
+        self.frame = PromptFrame::default();
         self.messages = vec![json!({"role": "system", "content": self.system_prompt})];
         self.last_usage = None;
         self.pending_mode = None;
