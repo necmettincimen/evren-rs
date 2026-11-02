@@ -13,6 +13,22 @@ sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kura
 - `evren --stdio` (protokol v1) ve başsız `evren -p` kipi Python sürümüyle uyumlu.
 - Ajan döngüsü Tokio üzerinde; onay ve `ask_user` olay kanalından döner.
 - Aynı `.evren/` dosya biçimleri: ayarlar, oturumlar, yedekler, kullanım günlüğü.
+- evren-sdlc uyumu (Python 3.12 davranışı): `--role`/`--profile` (yerleşik analyst, developer,
+  tester, shipper ve JSON rol dosyaları), `--task-ref`, `--root ad=yol`; rol araç/yol/komut kapısı,
+  test kotası, adım ve token bütçesi; tekrar kırıcı (`EVREN_REPEAT_LIMITS`), yinelenen çağrı
+  yanıtı, `STUCK`/`BÜTÇE` sonuçları.
+- stdio: hatalı rol/kökte `bad_role`/`bad_root` satırı ve çıkış 2; `turn_end.outcome`.
+- `-p --output json`: `outcome`, `role`, `repeat_blocked` alanları.
+- Trace: `EVREN_TRACE_FILE`; `task_start` satırında `role` ve `task_ref`.
+- Windows kurulumu: `scripts/install.ps1` ve `scripts/uninstall.ps1` (yedekli; Python sürümü
+  `evren-py` olarak kalır).
 
-### Kapsam dışı (ilk sürüm)
-- `vision_search`, MCP istemcisi, terminal kurulumu, güncelleyici ve `/team`.
+### Sonraki sürüm
+- Kalan REPL slash komutları (`/context`, `/compact`, `/rewind`, `/doctor`, `/rol`, `/commit`,
+  `/review`, `/init`, `/files`, `/add`, `/drop`, `/scan`, `/run`, `/memory`, `/language`,
+  `/resume`, `/keys`, `/debug`, `/docs`, `/skills`) ve `.evren/commands/*.md` özel komutları.
+- REPL prompt çerçevesi (`--rol/--cerceve/--brief/--kisit/--cikti`, form akışı).
+- `agent.md` yönetilen blokları, `plan_runner`, SSH araçları, skills, memory, `web_fetch`.
+- TOML rol dosyaları (bu sürümde yalnız JSON).
+- Kurulum dışındaki Faz 4/5 işleri: `vision_search`, MCP istemcisi, terminal kurulumu,
+  güncelleyici, `/team`.
