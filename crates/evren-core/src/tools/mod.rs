@@ -26,7 +26,9 @@ pub mod vision;
 pub mod web_fetch;
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+
+use crate::secret_vault::SecretVault;
 
 use crate::config::{Config, SslVerify};
 use background::BackgroundManager;
@@ -125,6 +127,9 @@ pub struct ToolContext {
     pub approver: Option<Approver>,
     pub output: Option<OutputSink>,
     pub info: Option<InfoSink>,
+    /// Oturumun sır kasası: komutlar çalıştırılmadan önce `{{SECRET_n}}`
+    /// yer tutucuları açılır, akan ve dönen çıktı yeniden maskelenir.
+    pub vault: Option<Arc<Mutex<SecretVault>>>,
 }
 
 impl ToolContext {
@@ -152,6 +157,7 @@ impl ToolContext {
             approver: None,
             output: None,
             info: None,
+            vault: None,
         }
     }
 
@@ -186,6 +192,41 @@ impl ToolContext {
         self
     }
 
+    pub fn with_vault(mut self, vault: Arc<Mutex<SecretVault>>) -> Self {
+        self.vault = Some(vault);
+        self
+    }
+
+    /// Kasa doluysa `f`'i kilit altında çalıştırır; kasa yoksa ya da boşsa `None`.
+    fn with_secrets<R>(&self, f: impl FnOnce(&SecretVault) -> R) -> Option<R> {
+        let vault = self.vault.as_ref()?;
+        let guard = vault
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (!guard.is_empty()).then(|| f(&guard))
+    }
+
+    /// Yer tutucuları gerçek değerlere açar (yalnız çalıştırma için).
+    pub fn expand_secrets(&self, text: &str) -> String {
+        self.with_secrets(|v| v.expand(text))
+            .unwrap_or_else(|| text.to_string())
+    }
+
+    /// Bilinen sır değerlerini yer tutucuyla değiştirir.
+    pub fn mask_secrets(&self, text: &str) -> String {
+        self.with_secrets(|v| v.mask(text))
+            .unwrap_or_else(|| text.to_string())
+    }
+
+    /// Alt süreçler için `EVREN_SECRET_n` ortam değişkenleri.
+    pub fn secret_env(&self) -> Vec<(String, String)> {
+        let mut env: Vec<(String, String)> = self
+            .with_secrets(|v| v.env().into_iter().collect())
+            .unwrap_or_default();
+        env.sort();
+        env
+    }
+
     pub(crate) fn emit_info(&self, text: &str) {
         if let Some(sink) = &self.info {
             sink(text);
@@ -194,7 +235,7 @@ impl ToolContext {
 
     pub(crate) fn emit_output(&self, tag: StreamTag, line: &str) {
         if let Some(sink) = &self.output {
-            sink(tag, line);
+            sink(tag, &self.mask_secrets(line));
         }
     }
 

@@ -131,18 +131,21 @@ pub fn execute_tool_call(
                     auto_approve,
                 );
             }
-            tool_run_command(
+            let result = tool_run_command(
                 ctx,
                 command,
                 auto_approve,
                 get_int(&args, "timeout_seconds"),
                 use_powershell,
                 use_python,
-            )
+            );
+            ctx.mask_secrets(&result)
         }
-        "check_background" => {
-            tool_check_background(ctx, get_str(&args, "id"), args.get("wait_seconds"))
-        }
+        "check_background" => ctx.mask_secrets(&tool_check_background(
+            ctx,
+            get_str(&args, "id"),
+            args.get("wait_seconds"),
+        )),
         "stop_background" => tool_stop_background(ctx, get_str(&args, "id")),
         "create_plan" => tool_create_plan(
             ctx,
@@ -209,7 +212,10 @@ pub fn execute_tool_call(
             {
                 return denied;
             }
-            super::ssh::ssh_run(ctx, alias, &command, get_int(&args, "timeout_seconds"))
+            let command = ctx.expand_secrets(&command);
+            let result =
+                super::ssh::ssh_run(ctx, alias, &command, get_int(&args, "timeout_seconds"));
+            ctx.mask_secrets(&result)
         }
         "ssh_read_file" => super::ssh::ssh_read_file(
             &ctx.root(),

@@ -196,12 +196,16 @@ impl AgentSession {
         let system_prompt = compose_system(SYSTEM_PROMPT, &workspace_root, &config, &git_block);
         let auto_approve = config.auto_approve();
         let cancel_slot = Arc::new(Mutex::new(cancel.clone()));
-        let tool_ctx = Arc::new(build_tool_context(
-            &workspace_root,
-            &config,
-            events.clone(),
-            cancel_slot.clone(),
-        ));
+        let vault = Arc::new(Mutex::new(SecretVault::new()));
+        let tool_ctx = Arc::new(
+            build_tool_context(
+                &workspace_root,
+                &config,
+                events.clone(),
+                cancel_slot.clone(),
+            )
+            .with_vault(vault.clone()),
+        );
         let compactor = HistoryCompactor::new(
             config.smart_compact_enabled(),
             config.compact_target_ratio(),
@@ -228,7 +232,7 @@ impl AgentSession {
             max_steps: None,
             thinking: None,
             exec_profile: None,
-            vault: Arc::new(Mutex::new(SecretVault::new())),
+            vault,
             cancel_slot,
             extra_allow: Vec::new(),
             listing_done: false,

@@ -437,11 +437,19 @@ fn sha_hex(data: &[u8]) -> String {
 
 /// İzlenmeyen dosyaların içerik özeti (`ls-files --others` + `hash-object --stdin-paths`).
 fn untracked_hash(repo: &Path) -> Option<String> {
-    let ls = git_t(repo, &["ls-files", "--others", "--exclude-standard", "-z"], 60);
+    let ls = git_t(
+        repo,
+        &["ls-files", "--others", "--exclude-standard", "-z"],
+        60,
+    );
     if ls.code != 0 {
         return None;
     }
-    let paths: Vec<&[u8]> = ls.out.split(|b| *b == 0).filter(|p| !p.is_empty()).collect();
+    let paths: Vec<&[u8]> = ls
+        .out
+        .split(|b| *b == 0)
+        .filter(|p| !p.is_empty())
+        .collect();
     if paths.is_empty() {
         return Some(String::new());
     }

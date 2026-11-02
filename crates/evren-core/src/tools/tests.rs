@@ -892,3 +892,39 @@ fn memory_save_appends_project_note() {
     assert_eq!(notes.len(), 1);
     assert_eq!(notes[0]["text"], "testler cargo ile");
 }
+
+#[test]
+fn run_command_unseals_vault_and_masks_output() {
+    let ws = workspace();
+    let mut vault = crate::secret_vault::SecretVault::new();
+    let sealed = vault.capture("password=hunter2xyz");
+    assert_eq!(sealed, "password={{EVREN_SECRET_1}}");
+    let lines: Arc<Mutex<Vec<String>>> = Arc::default();
+    let sink_lines = Arc::clone(&lines);
+    let ctx = ctx_for(ws.path())
+        .with_vault(Arc::new(Mutex::new(vault)))
+        .with_output(Box::new(move |_, line| {
+            sink_lines.lock().unwrap().push(line.to_string());
+        }));
+    let res = execute_tool_call(
+        &ctx,
+        "run_command",
+        json!({"command": "echo {{EVREN_SECRET_1}}> out.txt && echo {{EVREN_SECRET_1}}"}),
+        false,
+    );
+    // Komut gerçek değerle çalıştı; dönen ve akan çıktı yer tutucuda kaldı.
+    assert!(read(ws.path(), "out.txt").contains("hunter2xyz"));
+    assert!(!res.contains("hunter2xyz"), "{res}");
+    assert!(res.contains("{{EVREN_SECRET_1}}"), "{res}");
+    let streamed = lines.lock().unwrap().join("\n");
+    assert!(!streamed.contains("hunter2xyz"), "{streamed}");
+    assert_eq!(
+        ctx.secret_env(),
+        vec![("EVREN_SECRET_1".to_string(), "hunter2xyz".to_string())]
+    );
+    assert_eq!(ctx.expand_secrets("a {{EVREN_SECRET_1}}"), "a hunter2xyz");
+    assert_eq!(
+        ctx_for(ws.path()).expand_secrets("{{EVREN_SECRET_1}}"),
+        "{{EVREN_SECRET_1}}"
+    );
+}

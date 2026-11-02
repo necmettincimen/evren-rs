@@ -304,7 +304,11 @@ fn set_aside_running_exe(root: &Path) -> Option<PathBuf> {
     let moved = exe.with_file_name(format!("evren.exe.running-{tag}"));
     match std::fs::rename(&exe, &moved) {
         Ok(()) => {
-            log(&format!("SET ASIDE: {} -> {}", exe.display(), moved.display()));
+            log(&format!(
+                "SET ASIDE: {} -> {}",
+                exe.display(),
+                moved.display()
+            ));
             Some(moved)
         }
         Err(e) => {

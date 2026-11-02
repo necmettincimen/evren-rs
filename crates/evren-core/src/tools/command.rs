@@ -357,17 +357,18 @@ pub fn tool_run_command(
     if let Some(denied) = ctx.request_approval(auto_approve, command_request(command)) {
         return denied;
     }
+    let unsealed = ctx.expand_secrets(command);
     let expanded = if use_powershell || use_python {
-        command.to_string()
+        unsealed
     } else {
-        speed_grep(command)
+        speed_grep(&unsealed)
     };
     let argv = match command_argv(ctx, &expanded, use_powershell, use_python) {
         Ok(a) => a,
         Err(e) => return format!("HATA: {e}"),
     };
     let mut cmd = argv.to_command();
-    cmd.current_dir(ctx.root());
+    cmd.current_dir(ctx.root()).envs(ctx.secret_env());
     let outcome = match stream_with_tree_kill(
         &mut cmd,
         Some(Duration::from_secs(timeout as u64)),
@@ -407,7 +408,8 @@ pub fn start_background_command(
     if let Some(denied) = ctx.request_approval(auto_approve, background_request(command)) {
         return denied;
     }
-    let argv = match command_argv(ctx, command, use_powershell, use_python) {
+    let unsealed = ctx.expand_secrets(command);
+    let argv = match command_argv(ctx, &unsealed, use_powershell, use_python) {
         Ok(a) => a,
         Err(e) => return format!("HATA: {e}"),
     };
@@ -416,7 +418,7 @@ pub fn start_background_command(
         Argv::Shell(_) => None,
     };
     let mut manager = lock_manager(ctx);
-    match manager.start(command, &ctx.root(), list.as_deref(), &[]) {
+    match manager.start(&unsealed, &ctx.root(), list.as_deref(), &ctx.secret_env()) {
         Ok(record) => format!(
             "BAŞARILI: Arka plan komutu başlatıldı (id: {}). Çıktı/durum için check_background, sonlandırmak için stop_background kullan.",
             record.id
