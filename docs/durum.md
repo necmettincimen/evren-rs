@@ -1,4 +1,16 @@
-# 4.1.0 durumu (tamamlandı)
+# 4.1.2 durumu (tamamlandı)
+
+4.1.2 kapanan açıklar (4.1.1 üzerine):
+- Güncelleyici: ertelenen `install.ps1` çıktısı `.evren/logs/update.log`'a yazılır; kilitli
+  `targetelease\evren.exe` `evren.exe.running-<pid>` adına çekilir (`scripts/install.ps1` de);
+  kirli çalışma ağacı uyarısı (`c605eb6`).
+- `ToolContext` sır kasası: komutlar kasadan açılır, çıktı maskeli kalır (`b720037`).
+- `evren scan` uzantıları ilk görülme sırasıyla, Python `rglob` sırasında (`0efa2b3`).
+- `vision.rs` API anahtar havuzu (`KeySource` özelliği; `evren-api` uygular) (`71bb183`).
+- Kapanış: `cargo test`, `cargo test -- --ignored` (3.12.2 kopyasıyla 18/18), clippy temiz;
+  `evren --version` → `evren-cli 4.1.2`.
+
+## 4.1.0 durumu (tamamlandı)
 
 Hedef: 4.0.0 üzerine Python sürümüyle parite; sürüm 4.1.0. Ayrıntılı 4.0.0 durumu:
 `docs/surum-4.0.0-durum.md`.

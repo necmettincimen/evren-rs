@@ -5,6 +5,20 @@ Bu projedeki tüm önemli değişiklikler bu dosyada belgelenir.
 Format [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) standardına,
 sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kurallarına dayanır.
 
+## [4.1.2] - 2026-11-02
+
+### Eklendi
+- Araçlar sır kasasına erişir: `run_command`, arka plan komutları ve `ssh_run` komuttaki
+  `{{EVREN_SECRET_n}}` yer tutucularını gerçek değerle açar; çıktı ve akış maskeli kalır.
+- `describe_image` / görü modeli API anahtar havuzunu kullanır: 429'da sıradaki anahtara geçer,
+  401–403'te anahtarı devre dışı bırakır.
+
+### Düzeltildi
+- `/update` ve `evren update`: ertelenen `install.ps1` çıktısı `.evren/logs/update.log`'a
+  yazılır; kilitli `target\release\evren.exe` derlemeden önce `evren.exe.running-<pid>` adına
+  çekilir (`scripts/install.ps1` de aynı adımı yapar); kirli çalışma ağacında uyarı verilir.
+- `evren scan` uzantıları Python gibi ilk görülme sırasıyla listeler.
+
 ## [4.1.1] - 2026-11-02
 
 ### Eklendi
