@@ -1,7 +1,6 @@
 //! Etkileşimli REPL (Python `repl.py` `start_repl` / `_repl_loop`).
 
-use std::collections::VecDeque;
-use std::io::{BufRead, IsTerminal};
+use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
@@ -22,8 +21,9 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::commands::{canonical, is_command_input, unknown_command_message};
+use crate::commands::{canonical, is_command_input, known_commands, unknown_command_message};
 use crate::events::{EventPrinter, StdinPrompter};
+use crate::extras;
 use crate::handlers;
 use crate::input::{make_reader, EscWatcher, InputQueue, LineReader, ReadResult, WatchPause};
 use crate::shell;
@@ -101,27 +101,7 @@ const PHASE4_COMMANDS: &[&str] = &[
 ];
 
 /// Faz 3'ün sonraki adımlarında taşınacak çekirdek komutlar.
-const PENDING_COMMANDS: &[&str] = &[
-    "/context",
-    "/compact",
-    "/files",
-    "/add",
-    "/drop",
-    "/rewind",
-    "/run",
-    "/debug",
-    "/keys",
-    "/doctor",
-    "/rol",
-    "/scan",
-    "/commit",
-    "/review",
-    "/init",
-    "/docs",
-    "/memory",
-    "/language",
-    "/resume",
-];
+const PENDING_COMMANDS: &[&str] = &["/docs"];
 
 pub fn phase4_message(cmd: &str) -> String {
     format!("{cmd} komutu Faz 4'te gelecek; bu sürümde henüz yok.")
@@ -132,13 +112,6 @@ pub fn phase4_message(cmd: &str) -> String {
 pub struct ReplOptions {
     pub model: Option<String>,
     pub continue_last: bool,
-}
-
-fn headless() -> bool {
-    std::env::var("EVREN_HEADLESS")
-        .map(|v| v == "1")
-        .unwrap_or(false)
-        || !std::io::stdin().is_terminal()
 }
 
 struct TuiTermsUi;
@@ -160,23 +133,7 @@ impl TermsUi for TuiTermsUi {
         println!("{msg}");
     }
     fn confirm(&mut self, msg: &str) -> bool {
-        if headless() {
-            println!("{}", texts::confirm_headless(msg, false));
-            return false;
-        }
-        print!("{}", texts::confirm_prompt(msg, false));
-        ui::flush();
-        let mut line = String::new();
-        match std::io::stdin().lock().read_line(&mut line) {
-            Ok(0) | Err(_) => {
-                println!("{}", texts::confirm_no_input(false));
-                false
-            }
-            Ok(_) => matches!(
-                line.trim().to_lowercase().as_str(),
-                "y" | "yes" | "evet" | "e"
-            ),
-        }
+        extras::prompt_confirm(msg)
     }
 }
 
@@ -224,6 +181,8 @@ struct Repl {
     workspace: PathBuf,
     /// Önceki tur ESC/Ctrl+C ile kesildi; sonraki girdi düzeltmedir.
     interrupted: bool,
+    /// `.evren/commands/*.md` özel komutları.
+    custom: BTreeMap<String, extras::CustomCommand>,
 }
 
 /// Argümansız `evren`: etkileşimli REPL'i açar.
@@ -333,6 +292,7 @@ pub async fn run(
         queue: Arc::new(Mutex::new(VecDeque::new())),
         workspace: workspace.to_path_buf(),
         interrupted: false,
+        custom: extras::refresh_custom_commands(workspace),
     };
     repl.run_loop().await;
     repl.shutdown();
@@ -499,6 +459,14 @@ impl Repl {
             Some((c, a)) => (c.to_string(), a.trim().to_string()),
             None => (text.to_string(), String::new()),
         };
+        let lowered = typed.to_lowercase();
+        if !known_commands().contains(&lowered.as_str()) {
+            if let Some(entry) = self.custom.get(&lowered) {
+                let prompt = extras::render_custom_command(entry, &arg);
+                self.run_turn(Turn::Step(prompt)).await;
+                return Flow::Continue;
+            }
+        }
         let cmd = canonical(&typed);
         let Some(session) = self.session.as_mut() else {
             return Flow::Exit;
@@ -563,6 +531,7 @@ v{ver} Sürüm Notları:"
             }
             "/bg" => self.background(&arg),
             "/clear" => {
+                extras::clear_checkpoint(&self.workspace);
                 session.clear_history();
                 print_success("Sohbet geçmişi, kalıp ve aktif bağlam temizlendi.");
             }
@@ -613,11 +582,69 @@ v{ver} Sürüm Notları:"
             "/terms" => handlers::terms(session, &arg, &mut TuiTermsUi).await,
             "/tokens" => handlers::tokens(session),
             "/steps" => handlers::steps(session, &arg),
+            "/rol" => extras::role(session, &arg),
+            "/commit" => extras::commit(session).await,
+            "/review" => {
+                if extras::review_ready(&self.workspace) {
+                    self.run_turn(Turn::Step(extras::REVIEW_PROMPT.into())).await;
+                }
+            }
+            "/init" => {
+                if extras::init_ready(&self.workspace) {
+                    self.run_turn(Turn::Step(extras::INIT_PROMPT.into())).await;
+                }
+            }
+            "/context" => extras::context(session),
+            "/compact" => extras::compact(session, &arg),
+            "/rewind" => extras::rewind(session),
+            "/doctor" => extras::doctor(session).await,
+            "/keys" => extras::keys(session, &arg),
+            "/debug" => extras::debug(session, &arg),
+            "/memory" => extras::memory(session, &arg),
+            "/language" => extras::language(session, &arg),
+            "/scan" => extras::scan(&self.workspace, &arg),
+            "/files" => extras::files(session),
+            "/add" => extras::add(session, &arg),
+            "/drop" => extras::drop(session, &arg),
+            "/resume" if arg.to_lowercase() != "playbook" => extras::resume(session),
+            "/run" => self.run_command(&arg).await,
             c if PHASE4_COMMANDS.contains(&c) => print_warning(&phase4_message(c)),
             c if PENDING_COMMANDS.contains(&c) => print_warning(texts::NOT_PORTED_YET),
             _ => print_warning(&unknown_command_message(&typed)),
         }
         Flow::Continue
+    }
+
+    /// `/run <komut>`: onay istemi olayları basılırken komut çalışır.
+    async fn run_command(&mut self, arg: &str) {
+        if arg.is_empty() {
+            print_warning("Kullanım: /run <komut>");
+            return;
+        }
+        let Some(session) = self.session.as_mut() else {
+            return;
+        };
+        session.reset_cancel();
+        let ctx = session.tool_ctx().clone();
+        let auto = session.auto_approve();
+        let cmd = arg.to_string();
+        let mut worker = tokio::task::spawn_blocking(move || {
+            evren_core::tools::command::tool_run_command(&ctx, &cmd, auto, None, false, false)
+        });
+        let joined = loop {
+            tokio::select! {
+                Some(event) = self.rx.recv() => self.printer.handle(event),
+                res = &mut worker => break res,
+            }
+        };
+        while let Ok(event) = self.rx.try_recv() {
+            self.printer.handle(event);
+        }
+        self.printer.finish();
+        match joined {
+            Ok(out) => println!("{out}"),
+            Err(e) => print_error(&format!("Beklenmeyen hata: {e}")),
+        }
     }
 
     fn background(&mut self, arg: &str) {
@@ -718,6 +745,24 @@ mod tests {
                     | "/terms"
                     | "/tokens"
                     | "/steps"
+                    | "/rol"
+                    | "/commit"
+                    | "/review"
+                    | "/init"
+                    | "/context"
+                    | "/compact"
+                    | "/rewind"
+                    | "/doctor"
+                    | "/keys"
+                    | "/debug"
+                    | "/memory"
+                    | "/language"
+                    | "/scan"
+                    | "/files"
+                    | "/add"
+                    | "/drop"
+                    | "/resume"
+                    | "/run"
             );
             assert!(
                 handled || PHASE4_COMMANDS.contains(cmd) || PENDING_COMMANDS.contains(cmd),

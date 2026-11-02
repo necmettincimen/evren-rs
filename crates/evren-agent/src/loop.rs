@@ -170,6 +170,14 @@ impl AgentSession {
         self.reads.clear();
 
         let mut prompt = cleaned.clone();
+        if !self.active_context_files.is_empty() {
+            let files: Vec<&String> = self.active_context_files.iter().collect();
+            let ctx = evren_core::project_scan::build_context_from_files(&files, &self.workspace_root);
+            prompt = format!("{cleaned}
+
+[Aktif Dosya Bağlamı]:
+{ctx}");
+        }
         for block in [domain_hints(&cleaned), self.vault_lock().usage_note()] {
             if block.is_empty() || sent_before.contains(&block) {
                 continue;

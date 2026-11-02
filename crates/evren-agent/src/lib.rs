@@ -16,6 +16,7 @@ pub mod sessions;
 pub mod todos;
 pub mod token_manager;
 pub mod trace;
+pub mod trace_report;
 pub mod usage_log;
 
 #[path = "loop.rs"]

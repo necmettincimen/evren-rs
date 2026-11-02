@@ -315,9 +315,17 @@ pub fn compose_system(
     if !git_block.is_empty() {
         blocks.push(git_block.to_string());
     }
+    let mem = evren_core::memory::memory_context_block(workspace_root, 10);
+    if !mem.is_empty() {
+        blocks.push(mem);
+    }
     let role = role_context_block(workspace_root);
     if !role.is_empty() {
         blocks.push(role);
+    }
+    let lang = evren_core::language::language_context_block(workspace_root);
+    if !lang.is_empty() {
+        blocks.push(lang);
     }
     format!("{}\n\n{}", base.trim_end(), blocks.join("\n\n"))
 }

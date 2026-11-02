@@ -4,7 +4,10 @@
 pub mod config;
 pub mod docs_state;
 pub mod error;
+pub mod language;
+pub mod memory;
 pub mod models;
+pub mod project_scan;
 pub mod secret_vault;
 pub mod settings;
 pub mod ssh_hosts;

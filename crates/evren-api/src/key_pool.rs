@@ -214,6 +214,37 @@ impl ApiKeyPool {
         Some(pk.key.clone())
     }
 
+    /// `/keys add`: yeni anahtar ekler; boş ya da zaten varsa `false`.
+    pub fn add_key(&mut self, key: &str) -> bool {
+        let key = key.trim();
+        if key.is_empty() || self.index_of(key).is_some() {
+            return false;
+        }
+        self.keys.push(PooledKey::new(key.to_owned()));
+        true
+    }
+
+    /// `/keys remove`: anahtarı çıkarır; geçerli anahtarsa sıradaki hazır anahtar geçerli olur.
+    pub fn remove_key(&mut self, key: &str) -> bool {
+        let Some(idx) = self.index_of(key.trim()) else {
+            return false;
+        };
+        let was_current = idx == self.current;
+        self.keys.remove(idx);
+        self.daily_remaining.remove(key.trim());
+        if self.keys.is_empty() {
+            self.current = 0;
+        } else if was_current {
+            let start = idx % self.keys.len();
+            self.current = self
+                .first_available_from(start, Instant::now())
+                .unwrap_or(0);
+        } else if idx < self.current {
+            self.current -= 1;
+        }
+        true
+    }
+
     /// `/keys next`: sıradaki hazır anahtara elle geçer.
     pub fn rotate(&mut self) -> Option<String> {
         if self.keys.is_empty() {

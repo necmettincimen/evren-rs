@@ -249,6 +249,22 @@ impl ApiClient {
         &self.base_url
     }
 
+    /// `/doctor`: temel adrese HEAD (3 sn); hata türü adı ya da HTTP kodu.
+    pub async fn head_base_url(&self) -> Result<u16, String> {
+        match self
+            .http
+            .head(&self.base_url)
+            .timeout(Duration::from_secs(3))
+            .send()
+            .await
+        {
+            Ok(resp) => Ok(resp.status().as_u16()),
+            Err(e) if e.is_timeout() => Err("TimeoutException".into()),
+            Err(e) if e.is_connect() => Err("ConnectError".into()),
+            Err(_) => Err("HTTPError".into()),
+        }
+    }
+
     pub fn default_model(&self) -> &str {
         &self.default_model
     }

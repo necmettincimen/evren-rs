@@ -4,7 +4,7 @@
 //! derleme çıktısı ve `/` ile başlayan çok satırlı metin görev metnidir.
 
 use std::collections::{BTreeSet, HashMap};
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 
 use regex::Regex;
 
@@ -103,9 +103,33 @@ pub fn first_token(text: &str) -> &str {
     text.split_whitespace().next().unwrap_or("")
 }
 
-/// İlk sözcük bilinen komut mu.
+/// `.evren/commands/*.md` özel komutları (çalışma anında kaydedilir).
+fn dynamic_commands() -> &'static RwLock<BTreeSet<String>> {
+    static DYNAMIC: OnceLock<RwLock<BTreeSet<String>>> = OnceLock::new();
+    DYNAMIC.get_or_init(|| RwLock::new(BTreeSet::new()))
+}
+
+pub fn set_dynamic_commands<I, S>(names: I)
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    if let Ok(mut set) = dynamic_commands().write() {
+        set.clear();
+        set.extend(names.into_iter().map(|n| n.as_ref().to_lowercase()));
+    }
+}
+
+fn is_dynamic(token: &str) -> bool {
+    dynamic_commands()
+        .read()
+        .is_ok_and(|set| set.contains(token))
+}
+
+/// İlk sözcük bilinen ya da özel komut mu.
 pub fn is_command(text: &str) -> bool {
-    known_commands().contains(first_token(text).to_lowercase().as_str())
+    let token = first_token(text).to_lowercase();
+    known_commands().contains(token.as_str()) || is_dynamic(&token)
 }
 
 /// `/word ...` biçiminde, yanlış yazılmış komut gibi duran tek satırlık girdi.
@@ -116,7 +140,8 @@ pub fn is_unknown_command(text: &str) -> bool {
     }
     let token = first_token(stripped);
     let command_like = command_like_re().is_some_and(|re| re.is_match(token));
-    if known_commands().contains(token.to_lowercase().as_str()) || !command_like {
+    let lower = token.to_lowercase();
+    if known_commands().contains(lower.as_str()) || is_dynamic(&lower) || !command_like {
         return false;
     }
     stripped == token || suggest_command_with(token, NEAR_MISS_CUTOFF).is_some()

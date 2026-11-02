@@ -2,6 +2,7 @@
 
 pub mod commands;
 pub mod events;
+pub mod extras;
 pub mod handlers;
 pub mod input;
 pub mod markdown;

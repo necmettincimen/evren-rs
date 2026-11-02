@@ -3,7 +3,7 @@
 //!
 //! Adım döngüsünün kendisi `loop.rs` içindedir ([`AgentSession::run_step`]).
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
@@ -175,6 +175,8 @@ pub struct AgentSession {
     pub(crate) role: Option<RoleProfile>,
     /// `--task-ref` (iz kaydına yazılır).
     pub(crate) task_ref: String,
+    /// `/add` ile eklenen ve her göreve eklenen dosyalar (`/clear` boşaltır).
+    pub(crate) active_context_files: BTreeSet<String>,
 }
 
 impl AgentSession {
@@ -249,6 +251,7 @@ impl AgentSession {
             tool_ctx,
             role: None,
             task_ref: String::new(),
+            active_context_files: BTreeSet::new(),
         }
     }
 
@@ -275,6 +278,21 @@ impl AgentSession {
 
     pub fn role(&self) -> Option<&RoleProfile> {
         self.role.as_ref()
+    }
+
+    /// `/add`: dosyayı aktif bağlama ekler.
+    pub fn add_context_file(&mut self, rel_path: &str) {
+        self.active_context_files.insert(rel_path.to_string());
+    }
+
+    /// `/drop`: dosyayı aktif bağlamdan çıkarır.
+    pub fn remove_context_file(&mut self, rel_path: &str) {
+        self.active_context_files.remove(rel_path);
+    }
+
+    /// `/files`: aktif bağlam dosyaları (sıralı).
+    pub fn context_files(&self) -> Vec<String> {
+        self.active_context_files.iter().cloned().collect()
     }
 
     pub fn set_task_ref(&mut self, task_ref: &str) {
@@ -529,6 +547,7 @@ impl AgentSession {
         );
         self.frame = PromptFrame::default();
         self.messages = vec![json!({"role": "system", "content": self.system_prompt})];
+        self.active_context_files.clear();
         self.last_usage = None;
         self.pending_mode = None;
         self.interrupted = false;
