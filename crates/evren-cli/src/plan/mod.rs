@@ -7,10 +7,13 @@
 //!   {"op": "clone_tree", "src": "a", "dst": "b", "replacements": {"Eski": "Yeni"}, "exclude": ["bin"]},
 //!   {"op": "replace", "glob": "b/**/*.cs", "find": "x", "with": "y", "regex": false, "flags": "", "required": true},
 //!   {"op": "write", "path": "b/x.txt", "content": "..."},
-//!   {"op": "run", "cmd": "dotnet build", "cwd": "b", "timeout": 900, "ok_exit": [0], "shell": "bash"},
+//!   {"op": "run", "cmd": "dotnet build", "cwd": "b", "timeout": 900, "ok_exit": [0], "shell": "bash",
+//!    "save": "reports/ozet.txt", "min_count": 1, "count_regex": "bulunan=(\\d+)", "count_warn": false},
 //!   {"op": "commit", "repo": "b", "message": "..."},
-//!   {"op": "push", "repo": "b", "branch": "main"},
-//!   {"op": "agent", "prompt": "...", "repo": "b", "max_steps": 80, "timeout": 1800},
+//!   {"op": "push", "repo": "b", "branch": "test", "target": "main", "base": "main", "allow_foreign": false},
+//!   {"op": "agent", "prompt": "...", "repo": "b", "max_steps": 80, "timeout": 1800,
+//!    "kind": "code" | "report" | "docs" | "explore", "inputs": ["reports/ozet.txt"]},
+//!   {"op": "live_diff", "file": "b/argo/wf.yaml", "live_cmd": "kubectl get ... -o yaml" | "live_ssh": {...}},
 //!   {"op": "parallel", "max_workers": 3, "steps": [...]},
 //!   {"op": "ssh" | "scp" | "http" | "wait", ...}
 //! ]}
@@ -21,6 +24,7 @@
 //! reddedilir. `push` yalnız `--allow-push` ile çalışır.
 
 mod agent;
+mod live_diff;
 mod remote;
 
 use std::collections::HashMap;
@@ -528,10 +532,66 @@ fn op_run(step: &Step, root: &Path, dry: bool) -> Result<String, String> {
     if !ok_exit(step, r.code) {
         return Err(format!("çıkış kodu {}\n{tail}", r.code));
     }
+    let stdout = String::from_utf8_lossy(&r.stdout);
+    if let Some(rel) = str_of(step, "save").filter(|s| !s.is_empty()) {
+        // Ölçüm özeti dosyaya: sonraki agent adımı `inputs` ile rakamları hazır alır.
+        let path = resolve_in_root(root, &rel)?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&path, stdout.as_bytes()).map_err(|e| e.to_string())?;
+    }
+    let warn = check_count(step, &stdout)?;
     Ok(match tail.lines().last() {
-        Some(last) => format!("tamam: {last}"),
-        None => "tamam".into(),
+        Some(last) => format!("tamam: {last}{warn}"),
+        None => format!("tamam{warn}"),
     })
+}
+
+/// Sayaç doğrulaması: ayrıştırma bozulup sessizce 0 dönen sayaçlar yakalanır.
+/// `min_count`: çıktıdaki sayı (`count_regex`'in ilk grubu ya da son tam sayı) en az bu olmalı;
+/// sayı yoksa ya da azsa HATA (`count_warn: true` ile uyarı). `min_count` yoksa ve çıktı
+/// yalnız `0` ise uyarı eklenir.
+fn check_count(step: &Step, stdout: &str) -> Result<String, String> {
+    let Some(min) = step.get("min_count").and_then(Value::as_i64) else {
+        return Ok(if stdout.trim() == "0" {
+            " [UYARI: sayaç 0 döndü; ayrıştırma gerçekten bir şey buldu mu? `min_count` ile doğrula]"
+                .into()
+        } else {
+            String::new()
+        });
+    };
+    let problem = match count_in(step, stdout)? {
+        None => "sayaç sayı üretmedi (çıktı ayrıştırılamadı)".to_owned(),
+        Some(v) if v < min => {
+            format!("sayaç {v} < beklenen en az {min} (ayrıştırma/desen hatası olabilir)")
+        }
+        Some(_) => return Ok(String::new()),
+    };
+    if flag(step, "count_warn", false) {
+        Ok(format!(" [UYARI: {problem}]"))
+    } else {
+        Err(problem)
+    }
+}
+
+fn count_in(step: &Step, stdout: &str) -> Result<Option<i64>, String> {
+    static LAST_INT: OnceLock<Option<Regex>> = OnceLock::new();
+    let found = match str_of(step, "count_regex").filter(|s| !s.is_empty()) {
+        Some(p) => {
+            let re = Regex::new(&p).map_err(|e| format!("count_regex: {e}"))?;
+            re.captures_iter(stdout)
+                .last()
+                .and_then(|c| c.get(1).or_else(|| c.get(0)))
+                .map(|m| m.as_str().trim().to_owned())
+        }
+        None => LAST_INT
+            .get_or_init(|| Regex::new(r"-?\d+").ok())
+            .as_ref()
+            .and_then(|re| re.find_iter(stdout).last())
+            .map(|m| m.as_str().to_owned()),
+    };
+    Ok(found.and_then(|s| s.parse().ok()))
 }
 
 fn ai_signature() -> Option<&'static Regex> {
@@ -609,12 +669,21 @@ fn op_push(step: &Step, root: &Path, dry: bool, allow_push: bool) -> Result<Stri
     if branch.is_empty() {
         branch = "main".into();
     }
-    let mut c = git_cmd(&repo, &["push", "origin", &branch]);
+    let target = str_of(step, "target")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| branch.clone());
+    let pending = push_guard(step, &repo, &branch, &target)?;
+    let refspec = if target == branch {
+        branch.clone()
+    } else {
+        format!("{branch}:{target}")
+    };
+    let mut c = git_cmd(&repo, &["push", "origin", &refspec]);
     let r = run_capture(&mut c, None, Duration::from_secs(3600))?;
     if r.code != 0 {
         return Err(last_chars(String::from_utf8_lossy(&r.stderr).trim(), 300).to_owned());
     }
-    let mut msg = "push edildi".to_owned();
+    let mut msg = format!("push edildi ({pending} commit → {target})");
     if flag(step, "drone", true) {
         let wait = step
             .get("drone_wait")
@@ -635,6 +704,67 @@ fn op_push(step: &Step, root: &Path, dry: bool, allow_push: bool) -> Result<Stri
         }
     }
     Ok(msg)
+}
+
+/// Dal güvenliği: `origin/<target>..<branch>` (uzak dal yoksa `<base>..<branch>`) ile
+/// gönderilecek commit'leri listeler. Yazarı yerel `user.email` olmayan commit varsa
+/// (ör. `test` dalı `main`'in önündeyken başkasının işi prod'a taşınacaksa) durur ve
+/// kendi commit'lerini cherry-pick etmeyi önerir; `allow_foreign: true` ile geçilir.
+fn push_guard(step: &Step, repo: &Path, branch: &str, target: &str) -> Result<usize, String> {
+    git_out(repo, &["fetch", "-q", "origin", target]);
+    let remote = format!("origin/{target}");
+    let range = if git_cmd(repo, &["rev-parse", "--verify", "-q", &remote])
+        .stdout(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+    {
+        format!("{remote}..{branch}")
+    } else {
+        let base = str_of(step, "base")
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "main".into());
+        format!("{base}..{branch}")
+    };
+    let me = git_out(repo, &["config", "user.email"]).to_lowercase();
+    let log = git_out(
+        repo,
+        &["log", "--no-merges", "--format=%h\t%ae\t%an\t%s", &range],
+    );
+    let commits: Vec<(&str, &str, &str, &str)> = log
+        .lines()
+        .filter_map(|l| {
+            let mut it = l.splitn(4, '\t');
+            Some((it.next()?, it.next()?, it.next()?, it.next().unwrap_or("")))
+        })
+        .collect();
+    for (h, _, an, s) in &commits {
+        say(&format!("  push {range}: {h} {an}: {}", first_chars(s, 70)));
+    }
+    let foreign: Vec<_> = commits
+        .iter()
+        .filter(|(_, ae, _, _)| !me.is_empty() && ae.to_lowercase() != me)
+        .collect();
+    if foreign.is_empty() || flag(step, "allow_foreign", false) {
+        return Ok(commits.len());
+    }
+    let own: Vec<&str> = commits
+        .iter()
+        .filter(|(_, ae, _, _)| ae.to_lowercase() == me)
+        .map(|(h, ..)| *h)
+        .rev()
+        .collect();
+    let list: Vec<String> = foreign
+        .iter()
+        .map(|(h, _, an, s)| format!("{h} {an}: {}", first_chars(s, 60)))
+        .collect();
+    Err(format!(
+        "{range} içinde başkasına ait {} commit var, push durduruldu:\n  {}\n\
+         Yalnız kendi işini göndermek için: git switch -c evren/temiz {remote} && git cherry-pick {} \
+         ve push'u o dalla yap; bilerek gönderiyorsan adıma \"allow_foreign\": true ekle.",
+        foreign.len(),
+        list.join("\n  "),
+        if own.is_empty() { "<commit>".to_owned() } else { own.join(" ") }
+    ))
 }
 
 fn drone_server() -> String {
@@ -966,6 +1096,7 @@ fn run_plan_with(
             "run" => op_run(s, root, dry),
             "commit" => op_commit(s, root, dry),
             "agent" => agent::op_agent(s, root, dry, resolve_in_root, rt),
+            "live_diff" => live_diff::op_live_diff(s, root, dry),
             _ => return None,
         })
     };

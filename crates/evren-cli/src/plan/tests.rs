@@ -185,3 +185,81 @@ fn plan_dry_run_and_errors() {
         "'steps'"
     );
 }
+
+#[test]
+fn run_count_guard() {
+    let (_t, r) = root();
+    let ok = op_run(&step(json!({"cmd": "echo 0", "shell": "cmd"})), &r, false).unwrap();
+    assert!(ok.contains("sayaç 0 döndü"), "{ok}");
+    let err = op_run(&step(json!({"cmd": "echo 0", "min_count": 1})), &r, false).unwrap_err();
+    assert!(err.contains("sayaç 0 < beklenen en az 1"), "{err}");
+    let err = op_run(&step(json!({"cmd": "echo yok", "min_count": 1})), &r, false).unwrap_err();
+    assert!(err.contains("sayı üretmedi"), "{err}");
+    let warn = op_run(
+        &step(json!({"cmd": "echo bulunan=0 toplam=9", "min_count": 1, "count_regex": r"bulunan=(\d+)", "count_warn": true})),
+        &r,
+        false,
+    )
+    .unwrap();
+    assert!(warn.contains("UYARI: sayaç 0"), "{warn}");
+    op_run(
+        &step(json!({"cmd": "echo eslesme 12", "min_count": 1, "save": "reports/ozet.txt"})),
+        &r,
+        false,
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(r.join("reports/ozet.txt"))
+            .unwrap()
+            .trim(),
+        "eslesme 12"
+    );
+}
+
+fn git(repo: &Path, args: &[&str]) {
+    assert!(
+        git_cmd(repo, args).output().unwrap().status.success(),
+        "git {args:?}"
+    );
+}
+
+#[test]
+fn push_guard_blocks_foreign_commits() {
+    let (_t, r) = root();
+    git(&r, &["init", "-q", "-b", "main"]);
+    git(&r, &["config", "user.email", "ben@x"]);
+    git(&r, &["config", "user.name", "ben"]);
+    git(&r, &["commit", "-q", "--allow-empty", "-m", "init"]);
+    git(&r, &["switch", "-q", "-c", "test"]);
+    git(&r, &["commit", "-q", "--allow-empty", "-m", "benim"]);
+    git(
+        &r,
+        &[
+            "-c",
+            "user.email=o@x",
+            "-c",
+            "user.name=o",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "onun",
+        ],
+    );
+    let err = push_guard(&step(json!({})), &r, "test", "main").unwrap_err();
+    assert!(
+        err.contains("main..test içinde başkasına ait 1 commit") && err.contains("onun"),
+        "{err}"
+    );
+    assert!(err.contains("git cherry-pick "), "{err}");
+    assert_eq!(
+        push_guard(&step(json!({"allow_foreign": true})), &r, "test", "main").unwrap(),
+        2
+    );
+    git(&r, &["switch", "-q", "main"]);
+    git(&r, &["commit", "-q", "--allow-empty", "-m", "kendi"]);
+    assert_eq!(
+        push_guard(&step(json!({"base": "main~1"})), &r, "main", "main").unwrap(),
+        1
+    );
+}

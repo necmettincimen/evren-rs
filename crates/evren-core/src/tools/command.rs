@@ -91,10 +91,13 @@ fn single_line_summary(text: &str) -> String {
 /// "tabloyu yeniden yazma" notu gider. Kısa çıktı olduğu gibi döner.
 pub fn spill_long_output(text: &str, root: Option<&Path>, label: &str, command: &str) -> String {
     let n = char_len(text);
-    if n <= OUTPUT_HEAD_CHARS + OUTPUT_TAIL_CHARS {
+    let lines = text.matches('\n').count() + 1;
+    // Log çıktısı (Loki, kubectl logs, heartbeat) kısa olsa da satır çoksa özetlenir.
+    let short_log = lines > crate::output_summary::LOG_MIN_LINES
+        && crate::output_summary::is_log_output(text, command);
+    if n <= OUTPUT_HEAD_CHARS + OUTPUT_TAIL_CHARS && !short_log {
         return text.to_string();
     }
-    let lines = text.matches('\n').count() + 1;
     let saved = root.and_then(|root| {
         let dir = root.join(".evren").join("tmp");
         std::fs::create_dir_all(&dir).ok()?;

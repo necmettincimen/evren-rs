@@ -5,6 +5,27 @@ Bu projedeki tüm önemli değişiklikler bu dosyada belgelenir.
 Format [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) standardına,
 sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kurallarına dayanır.
 
+## [4.3.0] - 2026-11-02
+
+### Eklendi
+- Plan `agent` adımı `kind` alanı: `report` / `docs` / `explore` adımlarında `require_changes`
+  varsayılan olarak kapalı (rapor yazan ajan "değişiklik yok" ile düşmüyor). Rapor yazılıp kod
+  değişmeyen başarısızlıkta hata mesajı `kind: "report"` önerir.
+- Plan `agent` adımı `inputs`: betikle hesaplanmış dosyalar (ör. `reports/ozet.txt`) prompt'a
+  aynen eklenir ve ajana rakamları yeniden hesaplamaması söylenir; boş girdi adımı durdurur.
+- Plan `run` adımı `save` (stdout'u dosyaya yazar) ve sayaç doğrulaması: `min_count`,
+  `count_regex`, `count_warn`. Sayı yoksa ya da eşiğin altındaysa adım durur; `min_count`
+  verilmemişse yalnız `0` dönen çıktıya uyarı eklenir (sessizce 0 dönen sayaçlar).
+- Plan `push` adımı dal güvenliği: gönderilecek commit'ler (`origin/<target>..<branch>`) listelenir;
+  yazarı yerel `user.email` olmayan commit varsa push durur ve cherry-pick komutu önerilir
+  (`allow_foreign: true` ile geçilir). `target` ile `test:main` gibi refspec push'u.
+- Plan `live_diff` adımı: canlı Kubernetes/Argo nesnesini (`live_cmd` ya da `live_ssh`) repodaki
+  YAML ile alan yolu bazında karşılaştırır; sunucu alanları atılır, `ignore`, `live_only`,
+  `fail_on_drift`, `save` desteklenir.
+- Log çıktısı özeti: Loki/logcli, `kubectl logs`, journalctl, heartbeat ve zaman damgalı çıktılar
+  seviye sayıları, tekrar eden kalıplar ve son hata satırlarıyla özetlenir; 40 satırı aşan log
+  karakter sınırının altında da özetlenir (tam çıktı `.evren/tmp/` altında).
+
 ## [4.2.1] - 2026-11-02
 
 ### Düzeltildi

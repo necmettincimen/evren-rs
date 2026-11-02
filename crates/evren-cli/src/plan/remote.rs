@@ -137,7 +137,7 @@ pub(super) fn ok_exit(step: &Step, code: i32) -> bool {
     }
 }
 
-fn ssh_run(step: &Step, root: &Path) -> Result<String, String> {
+pub(super) fn ssh_run(step: &Step, root: &Path) -> Result<String, String> {
     let mut args: Vec<String> = SSH_BASE[1..].iter().map(|s| (*s).to_owned()).collect();
     if let Some(j) = str_of(step, "jump").filter(|s| !s.is_empty()) {
         args.extend(["-J".to_owned(), j]);

@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "4.2.1"
+version = "4.3.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/necmettincimen/evren-rs"
@@ -32,6 +32,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 regex = "1"
 fancy-regex = "0.14"
+serde_yaml = "0.9"
 sha1 = "0.10"
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }

@@ -772,3 +772,43 @@ fn parallel_cap_and_slots() {
     }
     assert_eq!(agent_slot(tmp.path(), 2).index, 0);
 }
+
+#[test]
+fn report_kind_needs_no_changes() {
+    let w = ws();
+    let write = |wd: &Path| {
+        std::fs::create_dir_all(wd.join("reports")).unwrap();
+        std::fs::write(wd.join("reports/k.md"), "rapor").unwrap();
+    };
+    let r = fake(&w, write, "bitti");
+    let base = json!({"prompt": "x", "repo": "app", "report": "reports/k.md", "retries": 0, "_label": "t-k1"});
+    let err = run(&w, base.clone(), &r).unwrap_err();
+    assert!(
+        err.contains("değişiklik yok") && err.contains("\"kind\": \"report\""),
+        "{err}"
+    );
+    let mut s = base;
+    s["kind"] = json!("report");
+    s["_label"] = json!("t-k2");
+    let out = run(&w, s, &r).unwrap();
+    assert!(out.contains("rapor: reports/k.md"), "{out}");
+}
+
+#[test]
+fn inputs_are_appended_verbatim() {
+    let w = ws();
+    std::fs::create_dir_all(w.root.join("reports")).unwrap();
+    std::fs::write(w.root.join("reports/ozet.txt"), "hata_orani=3.2%\n").unwrap();
+    let s = step(json!({"inputs": ["reports/ozet.txt"]}));
+    let block = inputs_block(&s, &w.root, resolve).unwrap();
+    assert!(
+        block.contains("[GİRDİ: reports/ozet.txt]\nhata_orani=3.2%\n[/GİRDİ]"),
+        "{block}"
+    );
+    assert!(block.contains("AYNEN"));
+    std::fs::write(w.root.join("reports/bos.txt"), " \n").unwrap();
+    let s = step(json!({"inputs": ["reports/bos.txt"]}));
+    assert!(inputs_block(&s, &w.root, resolve)
+        .unwrap_err()
+        .contains("girdi boş"));
+}

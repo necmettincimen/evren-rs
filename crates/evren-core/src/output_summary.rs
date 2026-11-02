@@ -1,5 +1,6 @@
 //! Uzun komut çıktıları için türe duyarlı özetler (Python `output_summary.py`).
-//! Saf fonksiyonlar: test, grep benzeri liste ve derleme çıktısını tanır;
+//! Saf fonksiyonlar: test, grep benzeri liste, derleme ve log (Loki, kubectl logs,
+//! heartbeat) çıktısını tanır;
 //! tanınmayan çıktıda `None` döner ve çağıran baş/kuyruk kırpmasını kullanır.
 
 use std::sync::OnceLock;
@@ -14,6 +15,10 @@ const BUILD_TAIL_LINES: usize = 10;
 const GREP_SHOWN_LINES: usize = 80;
 const GREP_MIN_LINES: usize = 100;
 const GREP_FILE_COUNTS_SHOWN: usize = 40;
+/// Bu kadar satırı geçen log çıktısı karakter sınırının altında da özetlenir.
+pub const LOG_MIN_LINES: usize = 40;
+const LOG_PATTERNS_SHOWN: usize = 15;
+const LOG_PROBLEM_LINES: usize = 10;
 
 struct Patterns {
     test_cmd: Regex,
@@ -29,6 +34,10 @@ struct Patterns {
     summary_line: Regex,
     fail_line: Regex,
     build_line: Regex,
+    log_cmd: Regex,
+    log_stamp: Regex,
+    log_level: Regex,
+    log_vary: Regex,
 }
 
 fn re(p: &str) -> Regex {
@@ -85,6 +94,22 @@ fn pats() -> &'static Patterns {
         build_line: re(concat!(
             r"(?i)\b(error|warning|hata|uyarı)\b|\bFAILED\b|^Build (succeeded|FAILED)",
             r"|\d+ (Warning|Error)\(s\)|Time Elapsed"
+        )),
+        log_cmd: re(concat!(
+            r"(?i)\b(logcli|loki|journalctl|stern|heartbeat)\b|\bkubectl\s+(\S+\s+)*logs\b",
+            r"|\bdocker\s+(compose\s+)?logs\b|query_range"
+        )),
+        log_stamp: re(concat!(
+            r"^\s*(\[|\x22|ts=|time=)?(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}|\d{2}:\d{2}:\d{2}",
+            r"|[A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2}|\d{10,13}\b)"
+        )),
+        log_level: re(
+            r"(?i)\b(?:level=)?\x22?(fatal|panic|crit(?:ical)?|error|err|warn(?:ing)?|info|debug|trace)\b",
+        ),
+        log_vary: re(concat!(
+            r"\d{4}-\d{2}-\d{2}[T ][\d:.,]+(Z|[+-]\d{2}:?\d{2})?",
+            r"|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+            r"|\b[0-9a-f]{12,}\b|\d+(\.\d+)?"
         )),
     })
 }
@@ -354,6 +379,102 @@ pub fn summarize_build(lines: &[&str]) -> String {
     parts.join("\n")
 }
 
+/// Log çıktısı: komut log aracıysa ya da satırların yarısından çoğu zaman damgasıyla başlıyorsa.
+pub fn is_log_output(text: &str, command: &str) -> bool {
+    let p = pats();
+    if p.log_cmd.is_match(command) {
+        return true;
+    }
+    let lines: Vec<&str> = splitlines(text)
+        .into_iter()
+        .filter(|l| !l.trim().is_empty())
+        .take(200)
+        .collect();
+    lines.len() >= 10 && lines.iter().filter(|l| p.log_stamp.is_match(l)).count() * 2 > lines.len()
+}
+
+fn level_of(line: &str) -> &'static str {
+    match pats()
+        .log_level
+        .captures(line)
+        .map(|c| c[1].to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("fatal" | "panic" | "crit" | "critical") => "FATAL",
+        Some("error" | "err") => "ERROR",
+        Some("warn" | "warning") => "WARN",
+        Some("info") => "INFO",
+        Some("debug" | "trace") => "DEBUG",
+        _ => "-",
+    }
+}
+
+/// Log özeti: seviye sayıları, zaman aralığı, tekrar eden kalıplar (sayı/kimlik/zaman `#`)
+/// ve son hata/uyarı satırları.
+pub fn summarize_logs(lines: &[&str]) -> String {
+    let p = pats();
+    let body: Vec<&str> = lines
+        .iter()
+        .copied()
+        .filter(|l| !l.trim().is_empty())
+        .collect();
+    let mut levels: Vec<(&str, usize)> = Vec::new();
+    let mut patterns: Vec<(String, usize)> = Vec::new();
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut problems: Vec<&str> = Vec::new();
+    for l in &body {
+        let lv = level_of(l);
+        match levels.iter_mut().find(|(k, _)| *k == lv) {
+            Some((_, n)) => *n += 1,
+            None => levels.push((lv, 1)),
+        }
+        if matches!(lv, "FATAL" | "ERROR" | "WARN") {
+            problems.push(l);
+        }
+        let key = take(&p.log_vary.replace_all(l.trim(), "#"), 160).to_string();
+        match index.get(&key) {
+            Some(&i) => patterns[i].1 += 1,
+            None => {
+                index.insert(key.clone(), patterns.len());
+                patterns.push((key, 1));
+            }
+        }
+    }
+    let order = ["FATAL", "ERROR", "WARN", "INFO", "DEBUG", "-"];
+    levels.sort_by_key(|(k, _)| order.iter().position(|o| o == k));
+    let lv: Vec<String> = levels.iter().map(|(k, n)| format!("{k}={n}")).collect();
+    let mut out = vec![format!(
+        "Log özeti: {} satır, {} farklı kalıp; seviyeler: {}",
+        body.len(),
+        patterns.len(),
+        lv.join(" ")
+    )];
+    if let (Some(first), Some(last)) = (body.first(), body.last()) {
+        out.push(format!("İlk: {}", take(first.trim(), 120)));
+        out.push(format!("Son: {}", take(last.trim(), 120)));
+    }
+    let mut top: Vec<&(String, usize)> = patterns.iter().collect();
+    top.sort_by_key(|e| std::cmp::Reverse(e.1));
+    out.push(format!(
+        "En sık {} kalıp:",
+        top.len().min(LOG_PATTERNS_SHOWN)
+    ));
+    for (k, n) in top.iter().take(LOG_PATTERNS_SHOWN) {
+        out.push(format!("  {n}× {k}"));
+    }
+    if !problems.is_empty() {
+        let shown = dedupe(problems.iter().rev().copied());
+        out.push(format!(
+            "Son hata/uyarı satırları ({} toplam):",
+            problems.len()
+        ));
+        for l in shown.iter().take(LOG_PROBLEM_LINES).rev() {
+            out.push(format!("  {}", take(l.trim(), 300)));
+        }
+    }
+    cap(&out.join("\n"), SUMMARY_MAX_CHARS)
+}
+
 /// Uzun çıktının özeti; tanınmayan çıktıda `None` (genel kırpma kalır).
 pub fn summarize_output(text: &str, command: &str) -> Option<String> {
     let lines = splitlines(text);
@@ -368,6 +489,8 @@ pub fn summarize_output(text: &str, command: &str) -> Option<String> {
     }
     if is_test {
         Some(summarize_tests(&lines))
+    } else if is_log_output(text, command) {
+        Some(summarize_logs(&lines))
     } else if is_build_output(text, command) {
         Some(summarize_build(&lines))
     } else {
@@ -379,6 +502,27 @@ pub fn summarize_output(text: &str, command: &str) -> Option<String> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loki_logs_are_grouped() {
+        let mut lines: Vec<String> = (0..50)
+            .map(|i| {
+                format!(
+                    "2026-11-02T10:00:{:02}Z level=info msg=\"heartbeat ok\" seq={i}",
+                    i % 60
+                )
+            })
+            .collect();
+        lines.push("2026-11-02T10:01:00Z level=error msg=\"db timeout\" id=42".into());
+        let text = lines.join("\n");
+        assert!(is_log_output(&text, "curl .../loki/api/v1/query_range"));
+        assert!(is_log_output(&text, ""));
+        let s = summarize_output(&text, "logcli query x").unwrap();
+        assert!(s.contains("51 satır, 2 farklı kalıp"), "{s}");
+        assert!(s.contains("ERROR=1 INFO=50"), "{s}");
+        assert!(s.contains("50× # level=info"), "{s}");
+        assert!(s.contains("db timeout"), "{s}");
+    }
 
     #[test]
     fn grep_listing_is_summarized() {

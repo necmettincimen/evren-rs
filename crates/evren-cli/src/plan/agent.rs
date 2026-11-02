@@ -5,7 +5,10 @@
 //! Sözleşme (agent adımı): adım yalnız şu koşullar sağlanınca başarılı
 //! sayılır; sağlanmazsa `retries` kez (varsayılan 1) eksiğe özel uyarıyla
 //! yeniden denenir, yine sağlanmazsa HATA verir:
-//!   - `require_changes` (varsayılan true): git deposunda dosya değişmiş olmalı;
+//!   - `require_changes` (varsayılan `kind`'a bağlı): git deposunda dosya değişmiş olmalı;
+//!     `kind: "report" | "docs" | "explore"` adımlarında varsayılan false, diğerlerinde true;
+//!   - `inputs` (yol listesi): betikle hesaplanmış girdiler (ör. `reports/ozet.txt`) prompt'a
+//!     aynen eklenir; ajan bu rakamları kullanır, kendisi hesaplamaz;
 //!   - `commit` (varsayılan false): HEAD ilerlemiş olmalı (worktree kipinde kalan değişiklikleri Evren kendisi commit eder);
 //!   - `report` (yol): ajan bu dosyayı yazmış ve boş olmamalı (salt rapor/keşif adımları için `require_changes: false` ile);
 //!   - ajanın son sözü soru ile bitmemeli ("onay ister misin?" gibi) — soru sorarak biten çıktı eksik sayılır.
@@ -600,6 +603,46 @@ fn only_report_missing(missing: &[String]) -> bool {
         .all(|m| REPORT_ONLY_MISSING.contains(&m.as_str()))
 }
 
+/// Salt rapor/doküman/keşif adımı: varsayılan olarak dosya değişikliği beklenmez.
+fn is_report_kind(step: &Step) -> bool {
+    matches!(
+        str_of(step, "kind").as_deref(),
+        Some("report" | "docs" | "doc" | "explore" | "analysis")
+    )
+}
+
+/// `inputs`: betikle hesaplanmış dosyalar prompt'a aynen eklenir (rakamı ajan üretmesin).
+fn inputs_block(step: &Step, root: &Path, resolve: Resolver) -> Result<String, String> {
+    let Some(list) = step.get("inputs").and_then(Value::as_array) else {
+        return Ok(String::new());
+    };
+    let mut out = String::new();
+    for v in list {
+        let rel = py_str(v);
+        let path = resolve(root, &rel)?;
+        let text = std::fs::read(&path)
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+            .map_err(|e| format!("girdi okunamadı ({rel}): {e}"))?;
+        if text.trim().is_empty() {
+            return Err(format!("girdi boş ({rel}): ölçüm betiği bir şey üretmedi"));
+        }
+        out.push_str(&format!(
+            "\n\n[GİRDİ: {rel}]\n{}\n[/GİRDİ]",
+            first_chars(text.trim(), 20000)
+        ));
+    }
+    if !out.is_empty() {
+        out.push_str(INPUTS_DIRECTIVE);
+    }
+    Ok(out)
+}
+
+const INPUTS_DIRECTIVE: &str = concat!(
+    "\n\n[RAKAMLAR] Yukarıdaki GİRDİ blokları betikle hesaplandı. Sayıları AYNEN kullan; ",
+    "yeniden sayma, toplama, yüzde ya da ortalama hesaplama. Girdide olmayan bir rakam gerekiyorsa ",
+    "uydurma, \"girdide yok\" diye yaz."
+);
+
 /// Python'daki `resolve(root, rel)` (plan kökü dışını reddeden çözücü).
 pub type Resolver = fn(&Path, &str) -> Result<PathBuf, String>;
 
@@ -622,7 +665,7 @@ pub fn op_agent(
     {
         return Err("worktree/commit/push için `repo` (git deposu) belirtilmeli; belirtilmezse sözleşme sessizce devre dışı kalıyordu".into());
     }
-    let need_changes = flag(step, "require_changes", true) && repo_is_git;
+    let need_changes = flag(step, "require_changes", !is_report_kind(step)) && repo_is_git;
     let need_commit = flag(step, "commit", false) && repo_is_git;
     let report = str_of(step, "report").filter(|s| !s.is_empty());
     let use_wt = flag(step, "worktree", false) && repo_is_git && repo != root;
@@ -677,6 +720,7 @@ pub fn op_agent(
     }
 
     let mut prompt = str_of(step, "prompt").ok_or("'prompt'")?;
+    prompt.push_str(&inputs_block(step, root, resolve)?);
     if use_wt {
         let rp = repo.display().to_string();
         let rc: Vec<char> = rp.chars().collect();
@@ -1055,7 +1099,16 @@ pub fn op_agent(
         ));
     }
     Err(format!(
-        "ajan sözleşmeyi karşılamadı ({problems}); son çıktı: {last} (günlük: reports/agent-logs/{label}-a*.log){}",
+        "ajan sözleşmeyi karşılamadı ({problems}); son çıktı: {last} (günlük: reports/agent-logs/{label}-a*.log){}{}",
+        if problems.starts_with("değişiklik yok")
+            && report_path.as_deref().is_some_and(nonempty_file)
+            && step.get("require_changes").is_none()
+            && step.get("kind").is_none()
+        {
+            "; rapor yazıldı ama kod değişmedi: salt rapor adımıysa `\"kind\": \"report\"` ver"
+        } else {
+            ""
+        },
         if use_wt {
             format!("; yarım iş dalı: {branch}")
         } else {
