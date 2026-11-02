@@ -607,6 +607,7 @@ v{ver} Sürüm Notları:"
             "/add" => extras::add(session, &arg),
             "/drop" => extras::drop(session, &arg),
             "/resume" if arg.to_lowercase() != "playbook" => extras::resume(session),
+            "/resume" => print_warning(&phase4_message("/resume playbook")),
             "/run" => self.run_command(&arg).await,
             c if PHASE4_COMMANDS.contains(&c) => print_warning(&phase4_message(c)),
             c if PENDING_COMMANDS.contains(&c) => print_warning(texts::NOT_PORTED_YET),
