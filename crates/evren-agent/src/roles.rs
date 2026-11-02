@@ -5,9 +5,9 @@
 //! kabuk komutu ve ağ sınırları, adım / token / tekrar bütçeleri. Sınırlar
 //! yalnız istemde değil araç kapısında uygulanır.
 //!
-//! Profil dosyası JSON (her alan isteğe bağlı); TOML dosyaları bu sürümde
-//! desteklenmez. `--role X` araması: `<çalışma alanı>/.evren/roles/X.json`,
-//! `~/.evren/roles/X.json`, sonra yerleşikler.
+//! Profil dosyası TOML ya da JSON (her alan isteğe bağlı). `--role X` araması:
+//! `<çalışma alanı>/.evren/roles/X.toml|json`, `~/.evren/roles/X.toml|json`,
+//! sonra yerleşikler.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -385,10 +385,7 @@ fn read_file(path: &Path) -> Result<Value, String> {
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("toml"))
     {
-        return Err(format!(
-            "{}: TOML rol dosyaları bu sürümde desteklenmiyor; JSON kullanın.",
-            path.display()
-        ));
+        return toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()));
     }
     serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))
 }
@@ -527,5 +524,29 @@ mod tests {
             json!({"function": {"name": "run_command"}}),
         ];
         assert_eq!(p.advertised(tools).len(), 1);
+    }
+
+    #[test]
+    fn toml_profile_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let roles = dir.path().join(".evren").join("roles");
+        std::fs::create_dir_all(&roles).unwrap();
+        std::fs::write(
+            roles.join("dar.toml"),
+            "prompt = \"Yalnız oku.\"
+tools = [\"read_file\"]
+max_steps = 7
+shell_writes = false
+",
+        )
+        .unwrap();
+        let p = load_profile("dar", Some(dir.path())).unwrap();
+        assert_eq!(p.name, "dar");
+        assert_eq!(p.prompt, "Yalnız oku.");
+        assert_eq!(p.tools, Some(vec!["read_file".to_string()]));
+        assert_eq!(p.max_steps, Some(7));
+        assert!(!p.shell_writes);
+        std::fs::write(roles.join("bozuk.toml"), "tools = [").unwrap();
+        assert!(load_profile("bozuk", Some(dir.path())).is_err());
     }
 }

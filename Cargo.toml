@@ -41,6 +41,7 @@ futures-util = "0.3"
 bytes = "1"
 tempfile = "3"
 jsonschema = "0.28"
+toml = "0.8"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
