@@ -226,7 +226,16 @@ pub fn execute_tool_call(
             }
             super::ssh::ssh_write_file(&ctx.root(), alias, remote_path, content)
         }
-        "search_code" | "ask_user" | "delegate" | "describe_image" => {
+        "search_code" => super::vision::search_code(ctx, get_str(&args, "query")),
+        "describe_image" => {
+            let path = get_str(&args, "path");
+            let img = super::file_ops::resolve_workspace_path(path, root);
+            if !img.is_file() {
+                return format!("HATA: Görsel bulunamadı: {path}");
+            }
+            super::vision::describe_image(ctx, &img, path)
+        }
+        "ask_user" | "delegate" => {
             format!("HATA: '{name}' aracı bu sürümde desteklenmiyor.")
         }
         _ => format!("HATA: Tanınmayan araç çağrısı: '{name}'"),

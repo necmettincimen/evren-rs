@@ -126,6 +126,31 @@ fn find_files_lists_without_query_and_context_blocks() {
 }
 
 #[test]
+fn search_code_and_describe_image_dispatch_offline() {
+    let ws = workspace();
+    write(ws.path(), "a.py", "print(1)\n");
+    let ctx = ctx_for(ws.path());
+    // Anahtar yok: ağa çıkmadan net hata.
+    let res = execute_tool_call(&ctx, "search_code", json!({"query": "print"}), false);
+    assert_eq!(
+        res,
+        "HATA: Anlamsal arama başarısız (RuntimeError): Kullanılabilir API anahtarı yok."
+    );
+    let res = execute_tool_call(&ctx, "view_file", json!({"path": "yok.png"}), false);
+    assert_eq!(res, "HATA: Görsel bulunamadı: yok.png");
+    std::fs::write(ws.path().join("p.png"), [0u8; 4]).unwrap();
+    let res = execute_tool_call(&ctx, "view_file", json!({"path": "p.png"}), false);
+    assert!(
+        res.starts_with("HATA: Görsel betimlenemedi (RuntimeError)"),
+        "{res}"
+    );
+    let res = execute_tool_call(&ctx, "describe_image", json!({"path": "p.png"}), false);
+    assert!(res.starts_with("HATA: Görsel betimlenemedi"), "{res}");
+    let res = execute_tool_call(&ctx, "delegate", json!({"task": "x"}), false);
+    assert!(res.contains("desteklenmiyor"), "{res}");
+}
+
+#[test]
 fn execute_tool_dispatch_missing_file() {
     let ws = workspace();
     let ctx = ctx_for(ws.path());

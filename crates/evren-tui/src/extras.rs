@@ -82,7 +82,7 @@ fn py_round(x: f64) -> i64 {
 }
 
 /// Python `str(float)`: tam sayılarda ".0" kalır.
-fn py_float(x: f64) -> String {
+pub fn py_float(x: f64) -> String {
     if x.is_finite() && x.fract() == 0.0 {
         format!("{x:.1}")
     } else {

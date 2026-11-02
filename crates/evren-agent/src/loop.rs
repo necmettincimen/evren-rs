@@ -524,23 +524,33 @@ impl AgentSession {
 
     /// `delegate` aracı: salt-okuma alt ajan turu, özet metni döner.
     async fn run_delegate(&mut self, args: &Value) -> Result<String, Cancelled> {
-        let task = args
-            .get("task")
-            .map(py_scalar)
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        if task.is_empty() || args.get("task").is_none() {
+        // Python: `str(args.get("task") or "")` — falsy değerler boş görevdir.
+        let task = match args.get("task") {
+            None | Some(Value::Null) | Some(Value::Bool(false)) => String::new(),
+            Some(Value::Number(n)) if n.as_f64() == Some(0.0) => String::new(),
+            Some(Value::Array(a)) if a.is_empty() => String::new(),
+            Some(Value::Object(o)) if o.is_empty() => String::new(),
+            Some(v) => py_scalar(v),
+        };
+        let task = task.trim().to_string();
+        if task.is_empty() {
             return Ok("HATA: delegate için 'task' boş olamaz.".to_string());
         }
+        // Python: `int(max_steps)`; ondalık kırpılır, bool 0/1, hata = varsayılan.
+        let default_steps = i64::from(DELEGATE_DEFAULT_STEPS);
         let steps = match args.get("max_steps") {
-            None | Some(Value::Null) => i64::from(DELEGATE_DEFAULT_STEPS),
-            Some(Value::Number(n)) => n.as_i64().unwrap_or(i64::from(DELEGATE_DEFAULT_STEPS)),
-            Some(Value::String(s)) => s
-                .trim()
-                .parse::<i64>()
-                .unwrap_or(i64::from(DELEGATE_DEFAULT_STEPS)),
-            Some(_) => i64::from(DELEGATE_DEFAULT_STEPS),
+            None | Some(Value::Null) => default_steps,
+            Some(Value::Bool(b)) => i64::from(*b),
+            Some(Value::Number(n)) => n
+                .as_i64()
+                .or_else(|| {
+                    n.as_f64()
+                        .filter(|f| f.is_finite())
+                        .map(|f| f.trunc() as i64)
+                })
+                .unwrap_or(default_steps),
+            Some(Value::String(s)) => s.trim().parse::<i64>().unwrap_or(default_steps),
+            Some(_) => default_steps,
         };
         let agent_name = match args.get("agent") {
             None | Some(Value::Null) => String::new(),
@@ -566,7 +576,7 @@ impl AgentSession {
                 Some(Value::String(s)) => !s.is_empty(),
                 Some(_) => true,
             };
-            if !steps_given {
+            if !steps_given && def.max_steps > 0 {
                 steps = i64::from(def.max_steps);
             }
             adef = Some(def);
@@ -592,11 +602,10 @@ impl AgentSession {
         let saved_goal = std::mem::take(&mut self.task_goal);
         let saved_notified = self.compaction_notified;
         let saved_listing = self.listing_done;
-        let system = saved_messages
-            .first()
-            .cloned()
-            .unwrap_or_else(|| json!({"role": "system", "content": self.system_prompt}));
-        self.messages = vec![system, json!({"role": "user", "content": instruction})];
+        self.messages = vec![
+            json!({"role": "system", "content": self.system_prompt}),
+            json!({"role": "user", "content": instruction}),
+        ];
         if let Some(def) = &adef {
             if !def.model.is_empty() {
                 self.set_model(&def.model);
@@ -1428,5 +1437,271 @@ mod tests {
         let c = classify_response(&r);
         assert_eq!(c.kind, ResponseKind::Ok);
         assert_eq!(c.calls.len(), 1);
+    }
+
+    // --- delegate: senaryolu sahte OpenAI sunucusuyla uçtan uca ---
+
+    use std::io::{BufRead, BufReader, Read as _, Write as _};
+    use std::sync::Mutex as StdMutex;
+
+    /// Asistan yanıtı: `{"content": ..}` ya da `{"tool": (ad, argümanlar)}`.
+    type Script = fn(&[Value]) -> Value;
+
+    struct ScriptedServer {
+        base_url: String,
+        requests: Arc<StdMutex<Vec<Value>>>,
+    }
+
+    fn sse(chunk: &Value) -> String {
+        format!("data: {chunk}\n\n")
+    }
+
+    fn handle_conn(stream: std::net::TcpStream, script: Script, log: &StdMutex<Vec<Value>>) {
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut request_line = String::new();
+        if reader.read_line(&mut request_line).unwrap_or(0) == 0 {
+            return;
+        }
+        let mut length = 0usize;
+        loop {
+            let mut line = String::new();
+            if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
+                break;
+            }
+            if let Some((k, v)) = line.split_once(':') {
+                if k.trim().eq_ignore_ascii_case("content-length") {
+                    length = v.trim().parse().unwrap_or(0);
+                }
+            }
+        }
+        let mut body = vec![0u8; length];
+        let _ = reader.read_exact(&mut body);
+        let mut out = stream;
+        let respond = |out: &mut std::net::TcpStream, ctype: &str, payload: &str| {
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                payload.len()
+            );
+            let _ = out.write_all(head.as_bytes());
+            let _ = out.write_all(payload.as_bytes());
+            let _ = out.flush();
+        };
+        if !request_line.starts_with("POST") || !request_line.contains("/chat/completions") {
+            let models =
+                json!({"object": "list", "data": [{"id": "fake-model", "object": "model"}]});
+            respond(&mut out, "application/json", &models.to_string());
+            return;
+        }
+        let req: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+        log.lock().unwrap().push(req.clone());
+        let messages = req["messages"].as_array().cloned().unwrap_or_default();
+        let reply = script(&messages);
+        let usage = json!({"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15});
+        let mut message =
+            json!({"role": "assistant", "content": reply["content"].as_str().unwrap_or("")});
+        let mut finish = "stop";
+        if let Some(tool) = reply.get("tool") {
+            message["tool_calls"] = json!([{"id": "call_d1", "type": "function",
+                "function": {"name": tool[0], "arguments": tool[1].to_string()}}]);
+            finish = "tool_calls";
+        }
+        if req["stream"].as_bool() != Some(true) {
+            let full = json!({"id": "x", "object": "chat.completion", "model": "fake-model",
+                "usage": usage, "choices": [{"index": 0, "message": message, "finish_reason": finish}]});
+            respond(&mut out, "application/json", &full.to_string());
+            return;
+        }
+        let chunk = |delta: Value, fin: Option<&str>| {
+            json!({"id": "x", "object": "chat.completion.chunk", "model": "fake-model",
+                "choices": [{"index": 0, "delta": delta, "finish_reason": fin}]})
+        };
+        let mut text = sse(&chunk(json!({"role": "assistant", "content": ""}), None));
+        if let Some(calls) = message.get("tool_calls") {
+            let mut tc = calls[0].clone();
+            tc["index"] = json!(0);
+            text.push_str(&sse(&chunk(json!({"tool_calls": [tc]}), None)));
+        } else {
+            text.push_str(&sse(&chunk(json!({"content": message["content"]}), None)));
+        }
+        let mut last = chunk(json!({}), Some(finish));
+        last["usage"] = usage;
+        text.push_str(&sse(&last));
+        text.push_str("data: [DONE]\n\n");
+        respond(&mut out, "text/event-stream", &text);
+    }
+
+    fn scripted_server(script: Script) -> ScriptedServer {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let requests = Arc::new(StdMutex::new(Vec::new()));
+        let log = requests.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                handle_conn(stream, script, &log);
+            }
+        });
+        ScriptedServer {
+            base_url: format!("http://127.0.0.1:{port}/v1"),
+            requests,
+        }
+    }
+
+    fn scripted_session(ws: &std::path::Path, server: &ScriptedServer) -> AgentSession {
+        let mut env = std::collections::BTreeMap::new();
+        env.insert("EVREN_API_KEY".to_string(), "evren_llm_test".to_string());
+        env.insert("EVREN_BASE_URL".to_string(), server.base_url.clone());
+        env.insert("EVREN_DEFAULT_MODEL".to_string(), "fake-model".to_string());
+        let config = evren_core::config::Config::from_env(env);
+        let client = Arc::new(evren_api::ApiClient::new(&config).unwrap());
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        AgentSession::new(
+            client,
+            config,
+            ws,
+            tx,
+            tokio_util::sync::CancellationToken::new(),
+        )
+    }
+
+    fn is_sub_agent(messages: &[Value]) -> bool {
+        messages
+            .get(1)
+            .and_then(|m| m["content"].as_str())
+            .is_some_and(|c| c.contains("[ALT GÖREV]"))
+    }
+
+    fn tool_names(req: &Value) -> Vec<String> {
+        req["tools"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|t| t["function"]["name"].as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn delegate_script(messages: &[Value]) -> Value {
+        if is_sub_agent(messages) {
+            return json!({"content": "Alt bulgu: a.rs:1 incelendi."});
+        }
+        if messages.iter().any(|m| m["role"] == "tool") {
+            return json!({"content": "Ana ajan: tamam."});
+        }
+        json!({"tool": ["delegate", {"task": "a.rs dosyasını incele"}]})
+    }
+
+    #[tokio::test]
+    async fn delegate_runs_read_only_sub_agent_and_returns_summary() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = scripted_server(delegate_script);
+        let mut s = scripted_session(dir.path(), &server);
+        let out = s
+            .run_step("a.rs'yi alt ajana incelet", Some(4), false)
+            .await;
+        assert!(out.contains("Ana ajan: tamam."), "{out}");
+
+        let reqs = server.requests.lock().unwrap().clone();
+        let sub: Vec<&Value> = reqs
+            .iter()
+            .filter(|r| is_sub_agent(r["messages"].as_array().unwrap()))
+            .collect();
+        assert_eq!(sub.len(), 1, "alt ajan isteği tek olmalı");
+        let sub_msgs = sub[0]["messages"].as_array().unwrap();
+        assert_eq!(sub_msgs[0]["role"], "system");
+        assert_eq!(
+            sub_msgs[1]["content"].as_str().unwrap(),
+            DELEGATE_INSTRUCTION.replace("{task}", "a.rs dosyasını incele")
+        );
+        // ASK kipi: yazma araçları ve `delegate` duyurulmaz.
+        let names = tool_names(sub[0]);
+        assert!(!names.iter().any(|n| n == "delegate"), "{names:?}");
+        assert!(!names.iter().any(|n| n == "write_file"), "{names:?}");
+
+        // Ana ajanın son isteği alt ajan özetini araç sonucu olarak taşır.
+        let last = reqs.last().unwrap()["messages"].as_array().unwrap().clone();
+        let tool_msg = last.iter().find(|m| m["role"] == "tool").unwrap();
+        assert!(
+            tool_msg["content"]
+                .as_str()
+                .unwrap()
+                .starts_with("ALT AJAN ÖZETİ:\nAlt bulgu: a.rs:1 incelendi."),
+            "{tool_msg}"
+        );
+        // Ana geçmiş geri yüklendi; alt ajan istemi sızmadı.
+        assert!(!s
+            .messages
+            .iter()
+            .any(|m| m["content"].as_str().unwrap_or("").contains("[ALT GÖREV]")));
+        assert!(s.delegate_tools.is_none());
+    }
+
+    fn agent_def_script(messages: &[Value]) -> Value {
+        if is_sub_agent(messages) {
+            return json!({"content": ""});
+        }
+        json!({"content": "?"})
+    }
+
+    #[tokio::test]
+    async fn delegate_agent_definition_limits_tools_and_prefixes_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        let agents = dir.path().join(".evren").join("agents");
+        std::fs::create_dir_all(&agents).unwrap();
+        std::fs::write(
+            agents.join("okuyucu.md"),
+            "---\nname: okuyucu\ndescription: okur\ntools: view_file, delegate\nmax_steps: 2\n---\nOKUYUCU İSTEMİ\n",
+        )
+        .unwrap();
+        let server = scripted_server(agent_def_script);
+        let mut s = scripted_session(dir.path(), &server);
+        s.messages
+            .push(json!({"role": "user", "content": "ana geçmiş"}));
+        let before = s.messages.clone();
+        let out = s
+            .run_delegate(&json!({"task": "bak", "agent": "okuyucu"}))
+            .await
+            .unwrap();
+        assert!(out.starts_with("ALT AJAN ÖZETİ:"), "{out}");
+        let reqs = server.requests.lock().unwrap().clone();
+        assert!(!reqs.is_empty());
+        for r in &reqs {
+            let msgs = r["messages"].as_array().unwrap();
+            assert!(msgs[1]["content"]
+                .as_str()
+                .unwrap()
+                .starts_with("OKUYUCU İSTEMİ\n\n[ALT GÖREV]"));
+            assert_eq!(tool_names(r), vec!["view_file".to_string()]);
+        }
+        assert!(reqs.len() <= 2, "tanımın max_steps tavanı: {}", reqs.len());
+        assert_eq!(s.messages, before);
+        assert!(s.delegate_tools.is_none());
+    }
+
+    #[tokio::test]
+    async fn delegate_argument_errors_match_python() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = scripted_server(delegate_script);
+        let mut s = scripted_session(dir.path(), &server);
+        for args in [
+            json!({}),
+            json!({"task": "  "}),
+            json!({"task": null}),
+            json!({"task": 0}),
+            json!({"task": false}),
+        ] {
+            assert_eq!(
+                s.run_delegate(&args).await.unwrap(),
+                "HATA: delegate için 'task' boş olamaz.",
+                "{args}"
+            );
+        }
+        assert_eq!(
+            s.run_delegate(&json!({"task": "x", "agent": "yok-boyle"}))
+                .await
+                .unwrap(),
+            "HATA: delegate için 'yok-boyle' adlı alt ajan bulunamadı."
+        );
+        assert!(server.requests.lock().unwrap().is_empty());
     }
 }

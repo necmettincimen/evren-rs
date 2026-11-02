@@ -6,6 +6,7 @@
 //! - [`diff`][]: satır farkı ve snippet değiştirme
 //! - [`proc`][], [`background`][]: süreç ağacı yönetimi
 //! - [`command`][], [`fs_tools`][], [`patch`][], [`clone_tree`][]: araç gövdeleri
+//! - [`vision`][]: görsel betimleme ve anlamsal kod arama
 //! - [`dispatch`][]: `execute_tool_call`
 
 pub mod args;
@@ -21,6 +22,7 @@ pub mod proc;
 pub mod registry;
 pub mod roots;
 pub mod ssh;
+pub mod vision;
 pub mod web_fetch;
 
 use std::path::{Path, PathBuf};
@@ -117,6 +119,8 @@ pub struct ToolContext {
     pub python_exe: String,
     /// `web_fetch` TLS ayarı (`EVREN_CA_BUNDLE` / `EVREN_SSL_VERIFY`).
     pub ssl: SslVerify,
+    /// `search_code` / görsel betimleme API ayarları.
+    pub vision: vision::VisionSettings,
     pub background: Mutex<BackgroundManager>,
     pub approver: Option<Approver>,
     pub output: Option<OutputSink>,
@@ -143,6 +147,7 @@ impl ToolContext {
                 .unwrap_or("python")
                 .to_string(),
             ssl: config.ssl_verify(),
+            vision: vision::VisionSettings::from_config(config),
             background: Mutex::new(BackgroundManager::new()),
             approver: None,
             output: None,

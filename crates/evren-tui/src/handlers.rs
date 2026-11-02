@@ -3,7 +3,7 @@
 
 use evren_agent::usage_log::{read_usage, usage_summary};
 use evren_agent::AgentSession;
-use evren_api::{ensure_terms_for_keys, mask_key, TermsUi};
+use evren_api::{ensure_terms_for_keys, mask_key, ApiClient, TermsUi};
 use evren_core::models::recommendation;
 use serde_json::{Map, Value};
 
@@ -99,9 +99,9 @@ pub fn key_quota_lines(rows: &[(String, bool, Map<String, Value>)]) -> Vec<Strin
     out
 }
 
-/// `/quota` (`/status`): havuzdaki her anahtarın kotası ve şartlar durumu.
-pub async fn quota(session: &AgentSession) {
-    let client = session.client();
+/// Havuzdaki her anahtarın kotası: `(maskeli, aktif mi, alanlar)`
+/// (Python `EvrenClient.get_all_quotas`).
+pub async fn key_quota_rows(client: &ApiClient) -> Vec<(String, bool, Map<String, Value>)> {
     let keys = client.with_pool(|p| p.key_values());
     let current = client.current_key();
     let mut rows = Vec::new();
@@ -109,6 +109,13 @@ pub async fn quota(session: &AgentSession) {
         let data = client.get_quota(Some(key)).await;
         rows.push((mask_key(key), current.as_deref() == Some(key), data));
     }
+    rows
+}
+
+/// `/quota` (`/status`): havuzdaki her anahtarın kotası ve şartlar durumu.
+pub async fn quota(session: &AgentSession) {
+    let client = session.client();
+    let rows = key_quota_rows(client).await;
     let terms = client.get_terms_status(None).await.unwrap_or(Value::Null);
     print_info(&format!("API Kota ({} anahtar):", rows.len()));
     for line in key_quota_lines(&rows) {

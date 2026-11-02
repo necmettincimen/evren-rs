@@ -86,10 +86,10 @@ pub fn tool_view_file(
     let lower = path.to_lowercase();
     if IMAGE_SUFFIXES.iter().any(|s| lower.ends_with(s)) {
         let resolved = resolve_workspace_path(path, root);
-        if !resolved.exists() {
+        if !resolved.is_file() {
             return format!("HATA: Görsel bulunamadı: {path}");
         }
-        return format!("HATA: Görsel açıklama bu sürümde desteklenmiyor: {path}");
+        return super::vision::describe_image(ctx, &resolved, path);
     }
     let content = match safe_read_file(path, root, 0) {
         Ok(c) => c,

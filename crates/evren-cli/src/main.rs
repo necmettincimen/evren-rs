@@ -1,5 +1,5 @@
 //! `evren` komut satırı girişi. Argüman yüzeyi Python `cli.build_parser`
-//! ile aynıdır; henüz taşınmayan alt komutlar açık bir hata ile çıkar.
+//! ile aynıdır.
 
 use std::io::{IsTerminal, Write as _};
 use std::path::PathBuf;
@@ -21,6 +21,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 mod headless;
 mod plan;
 mod stdio;
+mod terminal_setup;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -91,8 +92,9 @@ enum Command {
         stream: bool,
         #[arg(long)]
         max_tokens: Option<u32>,
+        /// Bağlam olarak eklenecek dosya
         #[arg(long, short = 'f')]
-        file: Vec<PathBuf>,
+        file: Vec<String>,
     },
     /// Otonom çok adımlı kodlama görevi yürüt
     Agent {
@@ -140,8 +142,11 @@ enum Command {
         #[arg(long)]
         yes: bool,
     },
-    /// Hata ayıklama
-    Debug,
+    /// Hata ayıklama araçları (görev izi)
+    Debug {
+        #[command(subcommand)]
+        action: Option<DebugAction>,
+    },
     /// Hedefe tur tur ilerle: kontrol → plan → düzelt → doğrula → HANDOFF
     Iterate {
         /// İterasyon hedefi
@@ -183,12 +188,39 @@ enum Command {
         #[arg(long, short = 'w')]
         workspace: Option<PathBuf>,
     },
-    /// Terminal modu
-    Terminal,
+    /// Windows Terminal'e 'EVREN (Git Bash)' profili ekler
+    #[command(name = "setup-terminal", visible_alias = "terminal")]
+    Terminal {
+        /// Başlangıç klasörü (varsayılan: kullanıcı klasörü)
+        #[arg(long)]
+        dir: Option<String>,
+        /// Masaüstüne kısayol da oluştur
+        #[arg(long)]
+        shortcut: bool,
+        /// Profili ve kısayolu kaldır
+        #[arg(long)]
+        remove: bool,
+    },
     /// SSH yönetimi (add/rm/test/run)
     Ssh {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum DebugAction {
+    /// Son ajan görevinin adım tablosunu göster (istek, araç, süre, token)
+    Last {
+        /// Sondan N. görevi göster (varsayılan: 1 = son görev)
+        #[arg(
+            long,
+            short = 'n',
+            default_value_t = 1,
+            value_name = "N",
+            allow_negative_numbers = true
+        )]
+        task: i64,
     },
 }
 
@@ -446,9 +478,90 @@ fn cmd_update(no_restart: bool) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn not_ported() -> ExitCode {
-    print_error(texts::NOT_PORTED_YET);
-    ExitCode::from(1)
+/// `evren debug [last -n N]`: son ajan görevinin adım tablosu (Python `cmd_debug`).
+fn cmd_debug(config: &Config, workspace: &std::path::Path, task: i64) -> ExitCode {
+    use evren_agent::trace_report::{last_task_report, DebugReport};
+    let index = usize::try_from(task).unwrap_or(0);
+    match last_task_report(workspace, index, config.trace_enabled()) {
+        DebugReport::Warning(m) => print_warning(&m),
+        DebugReport::Info(m) => print_info(&m),
+        DebugReport::Lines(lines) => {
+            for line in lines {
+                println!("{line}");
+            }
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+/// `evren scan [yol]`: dosya ağacı ve uzantı dağılımı (Python `cmd_scan`).
+fn cmd_scan(path: &str) -> ExitCode {
+    use evren_core::project_scan::{generate_tree, scan_workspace};
+    let target = evren_core::tools::file_ops::resolve_path(std::path::Path::new(path));
+    status(&format!(
+        "'{}' taranıyor ve dosya ağacı oluşturuluyor...",
+        target.display()
+    ));
+    let tree = generate_tree(&target, 3);
+    let stats = scan_workspace(&target, 150, 250.0);
+    println!("{tree}");
+    print_info(&format!(
+        "Toplam dosya: {} | Boyut: {} KB",
+        stats.total_files,
+        evren_tui::extras::py_float(stats.total_size_kb)
+    ));
+    println!("Uzantı Dağılımı:");
+    for (ext, count) in &stats.extension_counts {
+        println!("  • {ext:<10} : {count} dosya");
+    }
+    ExitCode::SUCCESS
+}
+
+/// `evren quota`: havuzdaki her anahtarın kotası (Python `cmd_quota`).
+async fn cmd_quota(config: &Config) -> Result<ExitCode, EvrenError> {
+    let api = client(config)?;
+    status("EVREN API kota bilgileri alınıyor...");
+    let rows = evren_tui::handlers::key_quota_rows(&api).await;
+    print_info(&format!("API Kota ({} anahtar):", rows.len()));
+    for line in evren_tui::handlers::key_quota_lines(&rows) {
+        println!("{line}");
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `evren rollback <dosya>`: dosyayı en son yedeğinden geri yükler.
+fn cmd_rollback(workspace: &std::path::Path, file: &str) -> ExitCode {
+    use evren_core::tools::file_ops::{resolve_workspace_path, rollback_last_backup};
+    let target = resolve_workspace_path(file, workspace);
+    let (ok, msg) = rollback_last_backup(&target, workspace);
+    if ok {
+        print_success(&msg);
+    } else {
+        print_error(&msg);
+    }
+    ExitCode::SUCCESS
+}
+
+/// `evren setup-terminal`: Windows Terminal profili ekler ya da kaldırır.
+fn cmd_setup_terminal(
+    config: &Config,
+    dir: Option<&str>,
+    shortcut: bool,
+    remove: bool,
+) -> ExitCode {
+    let lines = if remove {
+        terminal_setup::remove()
+    } else {
+        terminal_setup::setup(config, dir, shortcut)
+    };
+    for line in lines {
+        if line.starts_with("HATA") {
+            print_error(&line);
+        } else {
+            print_info(&line);
+        }
+    }
+    ExitCode::SUCCESS
 }
 
 fn client(config: &Config) -> Result<ApiClient, EvrenError> {
@@ -532,6 +645,16 @@ impl StreamPrinter {
     }
 }
 
+/// `chat --file`: dosya bağlamını isteğin önüne ekler (Python `cmd_chat`).
+fn with_file_context(user: String, files: &[String], workspace: &std::path::Path) -> String {
+    if files.is_empty() {
+        return user;
+    }
+    let context = evren_core::project_scan::build_context_from_files(files, workspace);
+    format!("Aşağıdaki dosya bağlamı verilmiştir:\n\n{context}\n\nİstek:\n{user}")
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn cmd_chat(
     config: &Config,
     model: Option<String>,
@@ -539,6 +662,8 @@ async fn cmd_chat(
     frame_args: &FrameArgs,
     max_tokens: Option<u32>,
     stream: bool,
+    files: &[String],
+    workspace: &std::path::Path,
 ) -> Result<ExitCode, EvrenError> {
     let api = client(config)?;
     // Python'dan sapma: şartlar, havuzdaki en iyi anahtar sabitlendikten
@@ -574,6 +699,7 @@ async fn cmd_chat(
             build_user_content(&frame, &prompt),
         )
     };
+    let user = with_file_context(user, files, workspace);
     let model = model.unwrap_or_else(|| config.default_model());
     let mut req = ChatRequest::simple(&system, &user);
     req.model = Some(model.clone());
@@ -766,11 +892,31 @@ async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
             max_tokens,
             file,
         }) => {
-            if !file.is_empty() {
-                return Ok(not_ported());
-            }
-            cmd_chat(&config, cli.model, prompt, &frame, max_tokens, stream).await
+            cmd_chat(
+                &config, cli.model, prompt, &frame, max_tokens, stream, &file, &workspace,
+            )
+            .await
         }
+        Some(Command::Debug { action }) => {
+            let task = match action {
+                Some(DebugAction::Last { task }) => task,
+                None => 1,
+            };
+            Ok(cmd_debug(&config, &workspace, task))
+        }
+        Some(Command::Scan { path }) => Ok(cmd_scan(&path)),
+        Some(Command::Quota) => cmd_quota(&config).await,
+        Some(Command::Rollback { file }) => Ok(cmd_rollback(&workspace, &file)),
+        Some(Command::Terminal {
+            dir,
+            shortcut,
+            remove,
+        }) => Ok(cmd_setup_terminal(
+            &config,
+            dir.as_deref(),
+            shortcut,
+            remove,
+        )),
         Some(Command::Agent {
             prompt,
             frame,
@@ -860,7 +1006,6 @@ async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
             };
             evren_tui::run(&config, &workspace, opts).await
         }
-        Some(_) => Ok(not_ported()),
     }
 }
 
@@ -888,8 +1033,47 @@ pub(crate) fn stdin_lines() -> tokio::io::Lines<BufReader<tokio::io::Stdin>> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn debug_last_and_setup_terminal_parse_like_python() {
+        let cli = Cli::parse_from(["evren", "debug"]);
+        assert!(matches!(cli.command, Some(Command::Debug { action: None })));
+        let cli = Cli::parse_from(["evren", "debug", "last", "-n", "3"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Debug {
+                action: Some(DebugAction::Last { task: 3 })
+            })
+        ));
+        for name in ["setup-terminal", "terminal"] {
+            let cli = Cli::parse_from(["evren", name, "--dir", "x", "--shortcut"]);
+            let Some(Command::Terminal {
+                dir,
+                shortcut,
+                remove,
+            }) = cli.command
+            else {
+                unreachable!("setup-terminal ayrıştırılmadı");
+            };
+            assert_eq!(dir.as_deref(), Some("x"));
+            assert!(shortcut && !remove);
+        }
+    }
+
+    #[test]
+    fn chat_file_context_wraps_the_request() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.py"), "print(1)").unwrap();
+        assert_eq!(with_file_context("soru".into(), &[], dir.path()), "soru");
+        let out = with_file_context("soru".into(), &["a.py".to_string()], dir.path());
+        assert_eq!(
+            out,
+            "Aşağıdaki dosya bağlamı verilmiştir:\n\n--- DOSYA: a.py ---\n```py\nprint(1)\n```\n\nİstek:\nsoru"
+        );
+    }
 
     fn no_input(_: &str) -> Result<String, FrameError> {
         Err(FrameError::Failed("okunmamalı".into()))

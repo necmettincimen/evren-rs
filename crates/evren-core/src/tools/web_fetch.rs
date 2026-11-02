@@ -271,7 +271,10 @@ fn first_chars_lower(text: &str, n: usize) -> String {
     text.chars().take(n).collect::<String>().to_lowercase()
 }
 
-fn build_client(timeout: u64, ssl: &SslVerify) -> Result<reqwest::blocking::Client, String> {
+pub(crate) fn build_client(
+    timeout: u64,
+    ssl: &SslVerify,
+) -> Result<reqwest::blocking::Client, String> {
     let mut b = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(timeout))
         .user_agent(USER_AGENT);
