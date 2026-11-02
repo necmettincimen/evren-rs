@@ -957,7 +957,11 @@ impl AgentSession {
             outgoing.push(json!({"role": "user", "content": notes}));
         }
         let outgoing = normalize_messages(&outgoing);
-        let mut tools = schema_with_roots(tools_for_mode(mode, true, false));
+        let mut tools = tools_for_mode(mode, true, false);
+        if mode == Mode::Normal {
+            tools.extend(evren_core::tools::ext::extra_schemas(&self.workspace_root));
+        }
+        let mut tools = schema_with_roots(tools);
         if let Some(role) = &self.role {
             tools = role.advertised(tools);
         }

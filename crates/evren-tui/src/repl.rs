@@ -1059,6 +1059,7 @@ v{ver} Sürüm Notları:"
             return;
         };
         session.save_session();
+        evren_core::tools::mcp::shutdown();
         let ctx = session.tool_ctx().clone();
         let killed = match ctx.background.lock() {
             Ok(mut bg) => bg.cleanup_all(),

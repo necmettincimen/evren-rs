@@ -244,6 +244,10 @@ pub fn execute_tool_call(
         "ask_user" | "delegate" => {
             format!("HATA: '{name}' aracı bu sürümde desteklenmiyor.")
         }
+        "web_search" => super::ext::web_search(get_str(&args, "query"), root, &ctx.ssl),
+        _ if name.starts_with("mcp__") => {
+            super::mcp::call_tool(ctx, name, Value::Object(args), auto_approve)
+        }
         _ => format!("HATA: Tanınmayan araç çağrısı: '{name}'"),
     }
 }

@@ -15,8 +15,10 @@ pub mod clone_tree;
 pub mod command;
 pub mod diff;
 pub mod dispatch;
+pub mod ext;
 pub mod file_ops;
 pub mod fs_tools;
+pub mod mcp;
 pub mod patch;
 pub mod proc;
 pub mod registry;
@@ -47,6 +49,7 @@ pub enum ApprovalKind {
     Plan,
     SshRun,
     SshWrite,
+    Mcp,
 }
 
 /// Düzenleme önerisi: onay arayüzü eski/yeni içeriği gösterebilir.
@@ -293,6 +296,7 @@ pub fn deny_text(kind: ApprovalKind) -> &'static str {
         ApprovalKind::Plan => "İPTAL EDİLDİ: Kullanıcı plan kaydını onaylamadı.",
         ApprovalKind::SshRun => "İPTAL EDİLDİ: Kullanıcı uzak komutun çalıştırılmasını reddetti.",
         ApprovalKind::SshWrite => "İPTAL EDİLDİ: Kullanıcı uzak dosya yazma işlemini onaylamadı.",
+        ApprovalKind::Mcp => "İPTAL EDİLDİ: Kullanıcı MCP aracını onaylamadı.",
     }
 }
 

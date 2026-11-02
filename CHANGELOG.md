@@ -5,6 +5,14 @@ Bu projedeki tüm önemli değişiklikler bu dosyada belgelenir.
 Format [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) standardına,
 sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kurallarına dayanır.
 
+## [4.2.0] - 2026-11-02
+
+### Eklendi
+- MCP istemcisi (stdio, JSON-RPC 2.0): `mcpServers` ayarındaki sunucular tembel başlatılır,
+  araçları normal kipte `mcp__<sunucu>__<araç>` adıyla modele sunulur; çağrı onay ister,
+  REPL çıkışında sunucular kapatılır.
+- `web_search`: `webSearch.url` (`{q}` yer tutuculu) ayarlıysa normal kipte sunulur.
+
 ## [4.1.2] - 2026-11-02
 
 ### Eklendi

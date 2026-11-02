@@ -1,4 +1,12 @@
-# 4.1.2 durumu (tamamlandı)
+# 4.2.0 durumu (tamamlandı)
+
+- MCP istemcisi (`evren-core` `tools::mcp`): `mcpServers` ayarı, tembel başlatma,
+  `mcp__<sunucu>__<araç>` şemaları normal kipte, onaylı çağrı, REPL çıkışında kapatma.
+  Test, test ikilisinin kendisini sahte MCP sunucusu olarak çalıştırır.
+- `web_search` (`tools::ext`): `webSearch.url` ayarlıysa sunulur ve dispatch edilir.
+- `evren --version` → `evren-cli 4.2.0`.
+
+## 4.1.2 durumu (tamamlandı)
 
 4.1.2 kapanan açıklar (4.1.1 üzerine):
 - Güncelleyici: ertelenen `install.ps1` çıktısı `.evren/logs/update.log`'a yazılır; kilitli
@@ -69,8 +77,10 @@ Hedef: 4.0.0 üzerine Python sürümüyle parite; sürüm 4.1.0. Ayrıntılı 4.
 
 ## Sonraki işler
 
-- `vision_search`, MCP istemcisi, terminal kurulumu.
-- `report_ready_for_test` (ClickUp akışı).
+- `report_ready_for_test` plan akışına bağlanmalı (ClickUp "teste hazır").
+- `ensure_cli_docs` (`cli_home` belgeleri) ve `current_focus` açık blokajları.
+- Küçük farklar: boş Brief'te son kalıbın yeniden çalıştırılması, `/doctor` satırı,
+  kullanılmayan `NOT_PORTED_YET` sabiti.
 
 ## Notlar
 
