@@ -428,7 +428,15 @@ async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
             cmd_chat(&config, cli.model, prompt, max_tokens, stream).await
         }
         Some(Command::Terms { force }) => cmd_terms(&config, force).await,
-        Some(_) | None => Ok(not_ported()),
+        None => {
+            config.require_api_key()?;
+            let opts = evren_tui::ReplOptions {
+                model: cli.model,
+                continue_last: cli.continue_session,
+            };
+            evren_tui::run(&config, &workspace, opts).await
+        }
+        Some(_) => Ok(not_ported()),
     }
 }
 

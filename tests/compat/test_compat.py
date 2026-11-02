@@ -448,6 +448,23 @@ def test_headless_text_result(fake_llm, tmp_path):
         assert out.rstrip().splitlines()[-1].rstrip() == "Merhaba, ben sahte model.", (kind, out)
 
 
+# --- REPL açılışı (evren-cli/tests/scenarios/repl_startup.json) ------------------
+
+def test_repl_startup(fake_llm, tmp_path):
+    inputs = "/help\n/todos\n/bg\n/skills\n/exit\n"
+    for kind in KINDS:
+        ws = tmp_path / f"rws-{kind}"
+        ws.mkdir(exist_ok=True)
+        cmd, cwd = _command(kind, [], ws)
+        p = subprocess.run(cmd, input=inputs.encode("utf-8"), capture_output=True, cwd=cwd,
+                           env=_env(fake_llm, tmp_path / f"rhome-{kind}"), timeout=TIMEOUT)
+        out = p.stdout.decode("utf-8", "replace")
+        assert p.returncode == 0, (kind, out[-800:], p.stderr.decode("utf-8", "replace")[-800:])
+        for needle in ["EVREN CLI", "Bağlam:", "Görev listesi boş.", "sonlandırılıyor"]:
+            assert needle in out, (kind, needle, out[-1500:])
+        assert "sahte model" not in out, (kind, out[-800:])
+
+
 # --- şema / kaynak tutarlılığı ----------------------------------------------------
 
 def test_schema_lists_match_rust_protocol():
