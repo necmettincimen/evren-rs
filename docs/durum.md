@@ -1,4 +1,9 @@
-# 4.2.0 durumu (tamamlandı)
+# 4.2.1 durumu (tamamlandı)
+
+- Boş Brief önceki kalıbı yeniden çalıştırır; `/doctor` kaynak sürümü uyarısı;
+  `NOT_PORTED_YET` kaldırıldı. `evren --version` → `evren-cli 4.2.1`.
+
+## 4.2.0 durumu (tamamlandı)
 
 - MCP istemcisi (`evren-core` `tools::mcp`): `mcpServers` ayarı, tembel başlatma,
   `mcp__<sunucu>__<araç>` şemaları normal kipte, onaylı çağrı, REPL çıkışında kapatma.
@@ -79,16 +84,12 @@ Hedef: 4.0.0 üzerine Python sürümüyle parite; sürüm 4.1.0. Ayrıntılı 4.
 
 - `report_ready_for_test` plan akışına bağlanmalı (ClickUp "teste hazır").
 - `ensure_cli_docs` (`cli_home` belgeleri) ve `current_focus` açık blokajları.
-- Küçük farklar: boş Brief'te son kalıbın yeniden çalıştırılması, `/doctor` satırı,
-  kullanılmayan `NOT_PORTED_YET` sabiti.
 
 ## Notlar
 
 - `report_ready_for_test` Rust'ta henüz çağrılmıyor (Python'da ClickUp akışı kullanır).
-
-- Python `/doctor` Python sürüm satırı yerine çalıştırılabilir yolunu basar.
-- REPL'de `EVREN_FORM_FIELDS` kapalıyken boş Brief hiçbir şey yapmaz (Python son kalıbı yeniden
-  çalıştırır).
+- `/doctor` Python sürüm satırı yerine çalıştırılabilir yolunu basar (Rust'ta Python yok);
+  `pyproject` karşılaştırması yerine kaynak `Cargo.toml` sürümünü karşılaştırır.
 - `agent.md` çalışma zamanı satırı Rust sürümünü yazar; proje haritası Cargo.toml ipuçlarını da
   tanır. `cli_home` belgeleri (`ensure_cli_docs`) ve `current_focus` açık blokajları Faz 4 takip
   modülüyle gelecek.

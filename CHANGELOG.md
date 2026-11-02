@@ -5,6 +5,17 @@ Bu projedeki tüm önemli değişiklikler bu dosyada belgelenir.
 Format [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) standardına,
 sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kurallarına dayanır.
 
+## [4.2.1] - 2026-11-02
+
+### Düzeltildi
+- REPL: boş Brief, form alanları kapalıyken de önceki kalıbı yeniden çalıştırır (Python gibi);
+  önceki kalıp yoksa hiçbir şey yapmaz.
+- `/doctor`: kaynak ağacındaki `Cargo.toml` sürümü çalışan sürümden farklıysa uyarır
+  (Python `pyproject` karşılaştırması).
+
+### Kaldırıldı
+- Kullanılmayan `NOT_PORTED_YET` metni.
+
 ## [4.2.0] - 2026-11-02
 
 ### Eklendi

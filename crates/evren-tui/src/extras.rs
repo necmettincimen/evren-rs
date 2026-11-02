@@ -510,6 +510,23 @@ async fn key_quota_rows(session: &AgentSession) -> Vec<(String, bool, Map<String
     rows
 }
 
+/// Derlendiği kaynak ağacındaki çalışma alanı `Cargo.toml` sürümü (ağaç yoksa `None`).
+fn source_version() -> Option<String> {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.toml");
+    parse_version(&std::fs::read_to_string(manifest).ok()?)
+}
+
+fn parse_version(toml: &str) -> Option<String> {
+    toml.lines().find_map(|l| {
+        let rest = l
+            .strip_prefix("version")?
+            .trim_start()
+            .strip_prefix('=')?
+            .trim();
+        Some(rest.strip_prefix('"')?.split('"').next()?.to_string())
+    })
+}
+
 pub async fn doctor(session: &AgentSession) {
     let root = session.workspace_root().to_path_buf();
     print_info("EVREN tanılama:");
@@ -527,7 +544,12 @@ pub async fn doctor(session: &AgentSession) {
     for p in &paths {
         println!("      {p}");
     }
-    println!("  • Sürüm                : {}", evren_core::VERSION);
+    // Python `pyproject` karşılaştırması: kaynak ağacındaki Cargo.toml sürümü farklıysa uyarır.
+    let mism = match source_version() {
+        Some(v) if v != evren_core::VERSION => format!("  (UYARI: Cargo.toml {v})"),
+        _ => String::new(),
+    };
+    println!("  • Sürüm                : {}{mism}", evren_core::VERSION);
     let client = session.client();
     if client.with_pool(|p| p.is_empty()) {
         println!("  • API erişimi          : anahtar yok, atlandı");
@@ -910,6 +932,14 @@ pub fn clear_checkpoint(root: &Path) {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn doctor_reads_workspace_version() {
+        let toml = "[workspace]\n\n[workspace.package]\nversion = \"9.8.7\"\nedition = \"2021\"\n";
+        assert_eq!(parse_version(toml).as_deref(), Some("9.8.7"));
+        assert_eq!(parse_version("name = \"x\""), None);
+        assert_eq!(source_version().as_deref(), Some(evren_core::VERSION));
+    }
 
     #[test]
     fn custom_commands_project_wins_and_builtin_skipped() {

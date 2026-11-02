@@ -479,8 +479,9 @@ impl Repl {
     async fn dispatch(&mut self, line: String) -> Flow {
         let text = line.trim().to_string();
         let opts = FrameOptions::from_env();
-        // Boş Brief yalnız form alanları açıkken önceki kalıbın formunu açar.
-        if text.is_empty() && !opts.form_fields {
+        // Boş Brief önceki kalıbı yeniden çalıştırır (form alanları açıksa formunu açar);
+        // önceki kalıp yoksa ve form kapalıysa hiçbir şey yapmaz.
+        if text.is_empty() && self.last_frame.is_none() && !opts.form_fields {
             return Flow::Continue;
         }
         if text.to_lowercase() == "devam" {

@@ -21,7 +21,6 @@ pub const CHAT_SYSTEM: &str =
     "Sen Windows üzerinde çalışan uzman bir yazılım mühendisi asistanısın.";
 pub const MODELS_FETCHING: &str = "EVREN API modelleri çekiliyor...";
 pub const MODELS_HEADER: &str = "EVREN API Modelleri:";
-pub const NOT_PORTED_YET: &str = "Bu komut henüz Rust sürümüne taşınmadı.";
 
 // --stdio hata metinleri (stdio_server.py)
 pub const STDIO_INVALID_MESSAGE: &str = "Mesaj 'type' alanı olan bir JSON nesnesi olmalı.";
