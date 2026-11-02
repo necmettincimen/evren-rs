@@ -837,3 +837,19 @@ fn medium_output_keeps_head_and_tail() {
 fn short_output_untouched() {
     assert_eq!(spill_long_output("kısa çıktı", None, "cmd"), "kısa çıktı");
 }
+
+#[test]
+fn memory_save_appends_project_note() {
+    let ws = workspace();
+    let ctx = ctx_for(ws.path());
+    let empty = execute_tool_call(&ctx, "memory_save", json!({"text": "  "}), false);
+    assert_eq!(empty, "HATA: memory_save için 'text' gerekli.");
+    let res = execute_tool_call(&ctx, "memory_save", json!({"text": "testler cargo ile"}), false);
+    assert_eq!(res, "BAŞARILI: not hafızaya kaydedildi.");
+    let again = execute_tool_call(&ctx, "memory_save", json!({"text": "testler cargo ile"}), false);
+    assert!(again.starts_with("BAŞARILI"), "{again}");
+    let state = crate::memory::load_memory(ws.path(), crate::memory::Scope::Project);
+    let notes = crate::memory::notes(&state);
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0]["text"], "testler cargo ile");
+}

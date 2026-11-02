@@ -152,24 +152,32 @@ pub fn execute_tool_call(
         ),
         "apply_patch" => tool_apply_patch(ctx, get_str(&args, "patch"), auto_approve),
         "clone_tree" => tool_clone_tree(ctx, &Value::Object(args)),
-        "web_fetch" => {
-            let url = get_str(&args, "url");
-            let lower = url.trim().to_lowercase();
-            if !(lower.starts_with("http://") || lower.starts_with("https://")) {
-                return format!("HATA: Yalnızca http/https adresleri desteklenir: {url}");
-            }
-            "HATA: web_fetch bu sürümde desteklenmiyor.".to_string()
-        }
+        "web_fetch" => super::web_fetch::fetch_url(
+            get_str(&args, "url"),
+            get_int(&args, "timeout"),
+            None,
+            get_int(&args, "max_chars"),
+            &ctx.ssl,
+        ),
         "todo_write" => match args.get("todos") {
             Some(Value::Array(_)) => "BAŞARILI: Yapılacaklar listesi güncellendi.".to_string(),
             _ => "HATA: 'todos' alanı {content, status} nesnelerinden oluşan bir dizi olmalı."
                 .to_string(),
         },
         "memory_save" => {
-            if get_str(&args, "text").trim().is_empty() {
+            let text = get_str(&args, "text").trim();
+            if text.is_empty() {
                 return "HATA: memory_save için 'text' gerekli.".to_string();
             }
-            "HATA: memory_save bu sürümde desteklenmiyor.".to_string()
+            let scope = if get_str(&args, "scope") == "global" {
+                crate::memory::Scope::Global
+            } else {
+                crate::memory::Scope::Project
+            };
+            match crate::memory::add_note(text, &ctx.root(), scope) {
+                Ok(_) => "BAŞARILI: not hafızaya kaydedildi.".to_string(),
+                Err(e) => format!("HATA: {e}"),
+            }
         }
         "search_code" | "ask_user" | "delegate" | "ssh_run" | "ssh_read_file"
         | "ssh_write_file" | "describe_image" => {

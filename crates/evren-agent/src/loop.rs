@@ -957,6 +957,7 @@ impl AgentSession {
             let Ok(args) = Self::parse_tool_args(call_raw_args(tc)) else {
                 return Ok(out);
             };
+            let args = self.vault_tool_args(fn_name, args);
             jobs.push((call_id(tc).to_string(), fn_name.to_string(), args));
         }
         let auto = self.auto_approve;
@@ -1190,7 +1191,9 @@ impl AgentSession {
                     if perm_allow && !auto_saved {
                         self.auto_approve = true;
                     }
-                    let r = self.execute_tool(&fn_name, args.clone()).await;
+                    let r = self
+                        .execute_tool(&fn_name, self.vault_tool_args(&fn_name, args.clone()))
+                        .await;
                     self.auto_approve = auto_saved;
                     r?
                 }
@@ -1227,6 +1230,24 @@ impl AgentSession {
         self.trace_tool(&fn_name, &args, started, &result, false);
         self.tool_reply(&call_id, &fn_name, &result);
         Ok(mode)
+    }
+
+    /// Sır kasası: `web_fetch` URL'si yalnız istek için açılır, `memory_save`
+    /// metni kaydedilmeden önce maskelenir (Python `tools.py`).
+    fn vault_tool_args(&self, fn_name: &str, mut args: Value) -> Value {
+        let (key, expand) = match fn_name {
+            "web_fetch" => ("url", true),
+            "memory_save" => ("text", false),
+            _ => return args,
+        };
+        let vault = self.vault_lock();
+        if vault.is_empty() {
+            return args;
+        }
+        if let Some(Value::String(v)) = args.get_mut(key) {
+            *v = if expand { vault.expand(v) } else { vault.mask(v) };
+        }
+        args
     }
 
     /// Olaylara giden argümanlar: sır değerleri maskelenir.

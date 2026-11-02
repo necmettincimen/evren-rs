@@ -20,11 +20,12 @@ pub mod patch;
 pub mod proc;
 pub mod registry;
 pub mod roots;
+pub mod web_fetch;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use crate::config::Config;
+use crate::config::{Config, SslVerify};
 use background::BackgroundManager;
 use proc::StreamTag;
 
@@ -113,6 +114,8 @@ pub struct ToolContext {
     pub git_bash: Option<PathBuf>,
     /// `use_python=true` için yorumlayıcı (Python `sys.executable`).
     pub python_exe: String,
+    /// `web_fetch` TLS ayarı (`EVREN_CA_BUNDLE` / `EVREN_SSL_VERIFY`).
+    pub ssl: SslVerify,
     pub background: Mutex<BackgroundManager>,
     pub approver: Option<Approver>,
     pub output: Option<OutputSink>,
@@ -138,6 +141,7 @@ impl ToolContext {
                 .filter(|s| !s.is_empty())
                 .unwrap_or("python")
                 .to_string(),
+            ssl: config.ssl_verify(),
             background: Mutex::new(BackgroundManager::new()),
             approver: None,
             output: None,
