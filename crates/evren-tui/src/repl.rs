@@ -23,6 +23,7 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::catalog_cmds;
 use crate::commands::{canonical, is_command_input, known_commands, unknown_command_message};
 use crate::events::{EventPrinter, StdinPrompter};
 use crate::extras;
@@ -79,12 +80,6 @@ EVREN CLI Komutları:
 
 /// Faz 4'e kalan komutlar (beceriler, takip, SSH, ekip, güncelleme).
 const PHASE4_COMMANDS: &[&str] = &[
-    "/skills",
-    "/apply",
-    "/skill",
-    "/playbook",
-    "/diagnose",
-    "/template",
     "/ssh",
     "/iterate",
     "/iterasyon",
@@ -784,7 +779,28 @@ v{ver} Sürüm Notları:"
             "/add" => extras::add(session, &arg),
             "/drop" => extras::drop(session, &arg),
             "/resume" if arg.to_lowercase() != "playbook" => extras::resume(session),
-            "/resume" => print_warning(&phase4_message("/resume playbook")),
+            "/resume" => {
+                if let Some((prompt, name, next)) = catalog_cmds::resume_playbook(&self.workspace) {
+                    self.run_turn(Turn::Step(prompt)).await;
+                    if let Err(e) =
+                        evren_core::catalog::save_playbook_checkpoint(&self.workspace, name, next)
+                    {
+                        print_error(&e);
+                    }
+                }
+            }
+            "/skills" => catalog_cmds::skills(session, &arg),
+            "/skill" | "/apply" | "/diagnose" | "/template" | "/playbook" => {
+                let prompt = match cmd.as_str() {
+                    "/diagnose" => catalog_cmds::diagnose(&arg),
+                    "/template" => catalog_cmds::template(&arg),
+                    "/playbook" => catalog_cmds::playbook(&self.workspace, &arg),
+                    _ => catalog_cmds::skill(session, &arg),
+                };
+                if let Some(prompt) = prompt {
+                    self.run_turn(Turn::Step(prompt)).await;
+                }
+            }
             "/docs" => crate::docs::repl_command(session, &arg),
             "/run" => self.run_command(&arg).await,
             "/checkpoint" | "/blockers" | "/check-in" | "/decisions" => {
@@ -955,6 +971,12 @@ mod tests {
                     | "/blockers"
                     | "/check-in"
                     | "/decisions"
+                    | "/skills"
+                    | "/skill"
+                    | "/apply"
+                    | "/diagnose"
+                    | "/template"
+                    | "/playbook"
             );
             assert!(handled || PHASE4_COMMANDS.contains(cmd), "{cmd}");
         }

@@ -1,6 +1,9 @@
 //! EVREN CLI çekirdeği. Python `src/` modüllerinin davranış eşdeğeri;
 //! ayrıntılar `docs/plan.md` içindedir.
 
+pub mod catalog;
+#[allow(clippy::type_complexity)]
+mod catalog_data;
 pub mod config;
 pub mod docs_merge;
 pub mod docs_state;

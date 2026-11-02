@@ -1,5 +1,6 @@
 //! Satır tabanlı etkileşimli arayüz (Python `repl.py`, `ui.py`, `interrupt.py`).
 
+pub mod catalog_cmds;
 pub mod commands;
 pub mod docs;
 pub mod events;
