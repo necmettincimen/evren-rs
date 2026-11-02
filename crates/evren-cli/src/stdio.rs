@@ -12,8 +12,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use evren_agent::mentions::expand_mentions;
-use evren_agent::sessions::{list_sessions, session_summary, sessions_dir};
 use evren_agent::roles::{load_profile, RoleProfile};
+use evren_agent::sessions::{list_sessions, session_summary, sessions_dir};
 use evren_agent::trace::classify_outcome;
 use evren_agent::{AgentEvent, AgentSession, EventSender};
 use evren_api::ApiClient;

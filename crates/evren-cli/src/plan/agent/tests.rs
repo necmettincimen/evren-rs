@@ -46,11 +46,20 @@ fn g(repo: &Path, args: &[&str]) {
         .args(args)
         .output()
         .unwrap();
-    assert!(st.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&st.stderr));
+    assert!(
+        st.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&st.stderr)
+    );
 }
 
 fn g_out(repo: &Path, args: &[&str]) -> String {
-    let o = Command::new("git").arg("-C").arg(repo).args(args).output().unwrap();
+    let o = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .output()
+        .unwrap();
     String::from_utf8_lossy(&o.stdout).trim().to_owned()
 }
 
@@ -79,7 +88,13 @@ fn ws() -> Ws {
     g(&repo, &["add", "-A"]);
     g(&repo, &["commit", "-q", "-m", "init"]);
     let slots_dir = slots.path().to_path_buf();
-    Ws { _tmp: tmp, _slots: slots, root, repo, slots: slots_dir }
+    Ws {
+        _tmp: tmp,
+        _slots: slots,
+        root,
+        repo,
+        slots: slots_dir,
+    }
 }
 
 fn rt(w: &Ws, act: Box<Act>, push: Option<PushHook>) -> Runtime {
@@ -116,7 +131,9 @@ fn run(w: &Ws, s: Value, r: &Runtime) -> Result<String, String> {
 fn asks_question_cases() {
     assert!(asks_question("Rapor hazır.\nHangisiyle devam edeyim?"));
     assert!(asks_question("kalan 3 iş için onayın var mı?"));
-    assert!(!asks_question("Neden? Çünkü X.\nTamamlandı: commit abc123."));
+    assert!(!asks_question(
+        "Neden? Çünkü X.\nTamamlandı: commit abc123."
+    ));
     assert!(!asks_question(""));
 }
 
@@ -139,7 +156,10 @@ fn worktree_merges_and_cleans() {
         &r,
     )
     .unwrap();
-    assert!(out.contains("ana ağaca alındı") && out.contains("reports/agent-logs/t-1-a1.log"), "{out}");
+    assert!(
+        out.contains("ana ağaca alındı") && out.contains("reports/agent-logs/t-1-a1.log"),
+        "{out}"
+    );
     assert_eq!(std::fs::read_to_string(w.repo.join("b.txt")).unwrap(), "2");
     assert!(!w.root.join(".evren").join("worktrees").join("t-1").exists());
 }
@@ -147,7 +167,11 @@ fn worktree_merges_and_cleans() {
 #[test]
 fn auto_commit_message() {
     let w = ws();
-    let r = fake(&w, |wd| std::fs::write(wd.join("c.txt"), "3").unwrap(), "bitti");
+    let r = fake(
+        &w,
+        |wd| std::fs::write(wd.join("c.txt"), "3").unwrap(),
+        "bitti",
+    );
     run(
         &w,
         json!({"prompt": "x", "repo": "app", "worktree": true, "commit": true,
@@ -155,14 +179,22 @@ fn auto_commit_message() {
         &r,
     )
     .unwrap();
-    assert_eq!(g_out(&w.repo, &["log", "-1", "--format=%s"]), "evren commit");
+    assert_eq!(
+        g_out(&w.repo, &["log", "-1", "--format=%s"]),
+        "evren commit"
+    );
 }
 
 #[test]
 fn question_without_change_fails_after_retry() {
     let w = ws();
     let r = fake(&w, |_| {}, "Devam edeyim mi?");
-    let err = run(&w, json!({"prompt": "x", "repo": "app", "_label": "t-3"}), &r).unwrap_err();
+    let err = run(
+        &w,
+        json!({"prompt": "x", "repo": "app", "_label": "t-3"}),
+        &r,
+    )
+    .unwrap_err();
     assert!(err.contains("sözleşmeyi karşılamadı"), "{err}");
     assert!(w.root.join("reports/agent-logs/t-3-a2.log").exists());
 }
@@ -191,7 +223,9 @@ fn push_recorder() -> (Arc<Mutex<Vec<String>>>, PushHook) {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let c2 = Arc::clone(&calls);
     let hook: PushHook = Box::new(move |s: &Step| {
-        c2.lock().unwrap().push(str_of(s, "repo").unwrap_or_default());
+        c2.lock()
+            .unwrap()
+            .push(str_of(s, "repo").unwrap_or_default());
         Ok("ok".into())
     });
     (calls, hook)
@@ -237,7 +271,12 @@ fn push_skipped_without_change() {
 fn contract_needs_repo() {
     let w = ws();
     let r = fake(&w, |_| {}, "bitti");
-    let err = run(&w, json!({"prompt": "x", "worktree": true, "commit": true, "_label": "t-7"}), &r).unwrap_err();
+    let err = run(
+        &w,
+        json!({"prompt": "x", "worktree": true, "commit": true, "_label": "t-7"}),
+        &r,
+    )
+    .unwrap_err();
     assert!(err.contains("repo"), "{err}");
 }
 
@@ -321,7 +360,10 @@ fn workdir_without_worktree() {
     .unwrap();
     let (d, prompt) = seen.lock().unwrap().clone();
     assert_eq!(d, w.repo);
-    assert_eq!(std::fs::read_to_string(w.root.join("reports/t.md")).unwrap(), "teshis");
+    assert_eq!(
+        std::fs::read_to_string(w.root.join("reports/t.md")).unwrap(),
+        "teshis"
+    );
     assert!(out.contains("rapor: reports/t.md"), "{out}");
     assert!(prompt.contains("HIZ KURALLARI"));
 }
@@ -350,7 +392,8 @@ fn killed_attempt_resumes_in_same_worktree() {
         }),
         None,
     );
-    let s = json!({"prompt": "x", "repo": "app", "worktree": true, "commit": true, "_label": "t-11"});
+    let s =
+        json!({"prompt": "x", "repo": "app", "worktree": true, "commit": true, "_label": "t-11"});
     assert!(run(&w, s.clone(), &r).is_err());
     let out = run(&w, s, &r).unwrap();
     assert_eq!(*checks.lock().unwrap(), vec![true]);
@@ -414,7 +457,10 @@ fn no_change_outcome_passes_contract() {
         &r,
     )
     .unwrap();
-    assert!(out.contains("[sonuç: front]") && w.root.join("reports/r.md").exists(), "{out}");
+    assert!(
+        out.contains("[sonuç: front]") && w.root.join("reports/r.md").exists(),
+        "{out}"
+    );
     assert!(!out.contains("ana ağaca alındı"));
 }
 
@@ -429,7 +475,10 @@ fn fixed_outcome_without_change_fails() {
         &r,
     )
     .unwrap_err();
-    assert!(err.contains("değişiklik yok") || err.contains("commit yok"), "{err}");
+    assert!(
+        err.contains("değişiklik yok") || err.contains("commit yok"),
+        "{err}"
+    );
 }
 
 #[test]
@@ -506,7 +555,11 @@ fn step_limit_raises_and_resumes() {
 #[test]
 fn verify_failure_blocks_merge() {
     let w = ws();
-    let r = fake(&w, |wd| std::fs::write(wd.join("bozuk.txt"), "x").unwrap(), "bitti");
+    let r = fake(
+        &w,
+        |wd| std::fs::write(wd.join("bozuk.txt"), "x").unwrap(),
+        "bitti",
+    );
     let err = run(
         &w,
         json!({"prompt": "x", "repo": "app", "worktree": true, "commit": true,
@@ -521,7 +574,11 @@ fn verify_failure_blocks_merge() {
 #[test]
 fn verify_success_merges() {
     let w = ws();
-    let r = fake(&w, |wd| std::fs::write(wd.join("iyi.txt"), "x").unwrap(), "bitti");
+    let r = fake(
+        &w,
+        |wd| std::fs::write(wd.join("iyi.txt"), "x").unwrap(),
+        "bitti",
+    );
     let out = run(
         &w,
         json!({"prompt": "x", "repo": "app", "worktree": true, "commit": true,
@@ -611,30 +668,42 @@ fn report_ready_for_test_cases() {
         std::fs::write(&f, text).unwrap();
         f
     };
-    let ok = write("dogrula-a.md", "SONUÇ: GEÇTİ
+    let ok = write(
+        "dogrula-a.md",
+        "SONUÇ: GEÇTİ
 
 ## KANIT
 
 GET /api/x -> 200 totalCount 16
-");
-    let done = write("dogrula-b.md", "SONUÇ: ZATEN ÇÖZÜLMÜŞ
+",
+    );
+    let done = write(
+        "dogrula-b.md",
+        "SONUÇ: ZATEN ÇÖZÜLMÜŞ
 
 ## KANIT
 
 log satırı
-");
-    let empty = write("dogrula-c.md", "SONUÇ: GEÇTİ
+",
+    );
+    let empty = write(
+        "dogrula-c.md",
+        "SONUÇ: GEÇTİ
 
 ## KANIT
 
 ## Sonra
-");
-    let failed = write("dogrula-d.md", "SONUÇ: KALDI
+",
+    );
+    let failed = write(
+        "dogrula-d.md",
+        "SONUÇ: KALDI
 
 ## KANIT
 
 500 döndü
-");
+",
+    );
     assert!(report_ready_for_test(&ok));
     assert!(report_ready_for_test(&done));
     assert!(!report_ready_for_test(&empty));

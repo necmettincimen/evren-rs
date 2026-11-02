@@ -33,8 +33,8 @@ use serde_json::Value;
 
 use super::remote::expand;
 use super::{
-    first_chars, flag, int_or, last_chars, lock, py_str, run_capture, say, shell_command,
-    str_of, tail, Step,
+    first_chars, flag, int_or, last_chars, lock, py_str, run_capture, say, shell_command, str_of,
+    tail, Step,
 };
 
 static MERGE_LOCK: Mutex<()> = Mutex::new(());
@@ -71,7 +71,11 @@ const NOTE_REPORT_ONLY: &str = concat!(
     "\n\n[UYARI] Kod işi önceki denemede yapılıp commit edildi; TEKRAR YAPMA, koda dokunma. ",
     "Yalnız `git log -3 --stat` ve `git show` ile yapılanı gör ve istenen rapor dosyasını eksiksiz yaz, sonra bitir."
 );
-const REPORT_ONLY_MISSING: [&str; 3] = ["rapor yok", "rapor sonuç satırı yok", "VERİ YOLU bölümü yok"];
+const REPORT_ONLY_MISSING: [&str; 3] = [
+    "rapor yok",
+    "rapor sonuç satırı yok",
+    "VERİ YOLU bölümü yok",
+];
 const NOTE_STEP_LIMIT: &str = concat!(
     "\n\n[UYARI] Önceki deneme adım sınırına takılıp yarıda kaldı. Çalışma kopyasında yaptığın iş duruyor ",
     "(git status / git log). Kaldığın yerden DEVAM ET, keşfi tekrarlama; işi küçük tut, derle, commit et ve raporu yaz."
@@ -112,7 +116,9 @@ const OUTCOME_DIRECTIVE: &str = concat!(
 /// Kod değişikliği gerektirmeyen GEÇERLİ sonuçlar: değişiklik/commit
 /// sözleşmesinden muaf, rapor şartı korunur.
 pub const NO_CHANGE_OUTCOMES: [&str; 6] = ["done", "front", "lib", "unk", "passed", "failed"];
-const OUTCOME_KEYS: [&str; 8] = ["fixed", "done", "front", "lib", "unk", "partial", "passed", "failed"];
+const OUTCOME_KEYS: [&str; 8] = [
+    "fixed", "done", "front", "lib", "unk", "partial", "passed", "failed",
+];
 const FINDINGS_MAX: usize = 3500;
 
 struct Patterns {
@@ -224,7 +230,8 @@ pub fn asks_question(text: &str) -> bool {
     if tail.is_empty() {
         return false;
     }
-    tail.trim_end_matches(['*', '_', '`', ' ', '\n']).ends_with('?')
+    tail.trim_end_matches(['*', '_', '`', ' ', '\n'])
+        .ends_with('?')
         || patterns().is_some_and(|p| p.question.is_match(tail))
 }
 
@@ -240,8 +247,12 @@ pub fn previous_findings(text: &str) -> String {
         .nth(n.saturating_sub(6000))
         .map(|(i, _)| i)
         .unwrap_or(0);
-    let start = patterns()
-        .and_then(|p| p.findings.find_iter(body).map(|m| m.start()).find(|s| *s >= tail_start));
+    let start = patterns().and_then(|p| {
+        p.findings
+            .find_iter(body)
+            .map(|m| m.start())
+            .find(|s| *s >= tail_start)
+    });
     let chunk = match start {
         Some(s) => &body[s..],
         None => last_chars(body, FINDINGS_MAX),
@@ -422,7 +433,11 @@ fn state(repo: &Path) -> Option<String> {
     if st.code != 0 {
         return None;
     }
-    Some(format!("{}\n{}", head(repo), String::from_utf8_lossy(&st.out)))
+    Some(format!(
+        "{}\n{}",
+        head(repo),
+        String::from_utf8_lossy(&st.out)
+    ))
 }
 
 fn dirty(repo: &Path) -> bool {
@@ -528,7 +543,9 @@ fn run_verify(step: &Step, cwd: &Path) -> Result<(bool, String), String> {
 }
 
 fn only_report_missing(missing: &[String]) -> bool {
-    missing.iter().all(|m| REPORT_ONLY_MISSING.contains(&m.as_str()))
+    missing
+        .iter()
+        .all(|m| REPORT_ONLY_MISSING.contains(&m.as_str()))
 }
 
 /// Python'daki `resolve(root, rel)` (plan kökü dışını reddeden çözücü).
@@ -590,7 +607,11 @@ pub fn op_agent(
             if let Some(parent) = wt.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            let r = git_t(&repo, &["worktree", "add", "-b", &branch, &wt_s, &base], 300);
+            let r = git_t(
+                &repo,
+                &["worktree", "add", "-b", &branch, &wt_s, &base],
+                300,
+            );
             if r.code != 0 {
                 return Err(format!(
                     "git worktree add -b {branch} {wt_s} {base}: {}",
@@ -628,13 +649,17 @@ pub fn op_agent(
         let target = fwd(&work_repo);
         for v in variants {
             if let Ok(re) = Regex::new(&format!("(?i){}", regex::escape(&v))) {
-                prompt = re.replace_all(&prompt, regex::NoExpand(&target)).into_owned();
+                prompt = re
+                    .replace_all(&prompt, regex::NoExpand(&target))
+                    .into_owned();
             }
         }
         let repo_f = rp.replace('\\', "/");
         let short = format!(
             "/{}{}",
-            rc.first().map(|c| c.to_lowercase().to_string()).unwrap_or_default(),
+            rc.first()
+                .map(|c| c.to_lowercase().to_string())
+                .unwrap_or_default(),
             rc.iter().skip(2).collect::<String>().replace('\\', "/")
         );
         prompt.push_str(&format!(
@@ -661,7 +686,11 @@ pub fn op_agent(
         ));
     }
     // Kod değiştiren ve rapor yazan ajanlarda uçtan uca iz zorunlu (`trace: false` ile kapatılır).
-    let want_trace = flag(step, "trace", report.is_some() && (need_changes || need_commit));
+    let want_trace = flag(
+        step,
+        "trace",
+        report.is_some() && (need_changes || need_commit),
+    );
     if want_trace {
         prompt.push_str(TRACE_DIRECTIVE);
     }
@@ -683,7 +712,11 @@ pub fn op_agent(
     } else {
         None
     };
-    let mut head_before = if repo_is_git { head(&work_repo) } else { String::new() };
+    let mut head_before = if repo_is_git {
+        head(&work_repo)
+    } else {
+        String::new()
+    };
     if resumed {
         // Sözleşme ölçütü: çalışma kopyasının taban commit'ine göre fark.
         before = Some(format!("{base}\n"));
@@ -693,7 +726,11 @@ pub fn op_agent(
              duruyor. `git status` ve `git log` ile ne yapıldığını gör, baştan başlama, kaldığın yerden tamamla.",
         );
     }
-    let head_before_main = if repo_is_git { head(&repo) } else { String::new() };
+    let head_before_main = if repo_is_git {
+        head(&repo)
+    } else {
+        String::new()
+    };
     let changed = |work_repo: &Path, before: &Option<String>, head_before: &str| {
         head(work_repo) != head_before || state(work_repo) != *before
     };
@@ -712,9 +749,20 @@ pub fn op_agent(
     let finish_wt = |merged: &mut String| -> Result<(), String> {
         if use_wt {
             if head(&work_repo) != base {
-                *merged = format!(" [ana ağaca alındı: {}]", merge_back(&repo, &branch, &base)?);
+                *merged = format!(
+                    " [ana ağaca alındı: {}]",
+                    merge_back(&repo, &branch, &base)?
+                );
             }
-            git(&repo, &["worktree", "remove", "--force", &work_repo.display().to_string()]);
+            git(
+                &repo,
+                &[
+                    "worktree",
+                    "remove",
+                    "--force",
+                    &work_repo.display().to_string(),
+                ],
+            );
             git(&repo, &["branch", "-D", &branch]);
         }
         Ok(())
@@ -756,7 +804,10 @@ pub fn op_agent(
             ));
             if use_wt && dirty(&work_repo) {
                 git(&work_repo, &["add", "-A"]);
-                git(&work_repo, &["commit", "-q", "-m", &commit_msg(" (ara kayıt)")]);
+                git(
+                    &work_repo,
+                    &["commit", "-q", "-m", &commit_msg(" (ara kayıt)")],
+                );
             }
             continue;
         }
@@ -875,7 +926,9 @@ pub fn op_agent(
         if missing.is_empty() {
             let suffix = format!(
                 " [günlük: {rel_log}]{report_tag}{}",
-                outcome.map(|o| format!(" [sonuç: {o}]")).unwrap_or_default()
+                outcome
+                    .map(|o| format!(" [sonuç: {o}]"))
+                    .unwrap_or_default()
             );
             let mut merged = String::new();
             finish_wt(&mut merged)?;
@@ -962,7 +1015,11 @@ pub fn op_agent(
 /// `EVREN_MAX_PARALLEL` (varsayılan 6).
 pub fn parallel_cap() -> usize {
     match std::env::var("EVREN_MAX_PARALLEL") {
-        Ok(v) => v.trim().parse::<i64>().map(|n| n.max(1) as usize).unwrap_or(6),
+        Ok(v) => v
+            .trim()
+            .parse::<i64>()
+            .map(|n| n.max(1) as usize)
+            .unwrap_or(6),
         Err(_) => 6,
     }
 }
@@ -989,7 +1046,10 @@ pub fn agent_slot(dir: &Path, cap: usize) -> Slot {
                 continue;
             };
             if fh.try_lock().is_ok() {
-                return Slot { index: i, _file: fh };
+                return Slot {
+                    index: i,
+                    _file: fh,
+                };
             }
         }
         std::thread::sleep(Duration::from_secs(2));
@@ -1026,8 +1086,7 @@ pub fn op_parallel(
             sub.entry("worktree").or_insert(Value::Bool(true));
         }
         let _slot = (op == "agent" && !dry).then(|| agent_slot(slots_dir, cap));
-        ops(&op, &sub)
-            .unwrap_or_else(|| Err(format!("parallel içinde desteklenmeyen adım: {op}")))
+        ops(&op, &sub).unwrap_or_else(|| Err(format!("parallel içinde desteklenmeyen adım: {op}")))
     };
 
     let next = AtomicUsize::new(0);

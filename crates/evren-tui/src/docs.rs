@@ -93,7 +93,11 @@ pub fn repl_command(session: &mut AgentSession, arg: &str) {
             print_info("Vazgeçildi.");
             return;
         }
-        let opts = DocsOptions { refresh: true, adopt, ..Default::default() };
+        let opts = DocsOptions {
+            refresh: true,
+            adopt,
+            ..Default::default()
+        };
         let result = ensure_project_docs(&root, &config, &opts);
         session.refresh_context();
         print_success(&result.summary());
@@ -114,14 +118,24 @@ pub fn repl_command(session: &mut AgentSession, arg: &str) {
 }
 
 /// `evren docs [status|refresh|unmark|path] [--adopt] [--yes]`.
-pub fn cli_command(config: &Config, workspace: &Path, action: &str, adopt: bool, yes: bool) -> ExitCode {
+pub fn cli_command(
+    config: &Config,
+    workspace: &Path,
+    action: &str,
+    adopt: bool,
+    yes: bool,
+) -> ExitCode {
     match action {
         "path" => {
             println!("Proje belgeleri : {}", workspace.display());
             println!("CLI belgeleri   : {}", cli_docs_dir(config).display());
         }
         "refresh" => {
-            let opts = DocsOptions { refresh: true, adopt, ..Default::default() };
+            let opts = DocsOptions {
+                refresh: true,
+                adopt,
+                ..Default::default()
+            };
             print_success(&ensure_project_docs(workspace, config, &opts).summary());
         }
         "unmark" => {

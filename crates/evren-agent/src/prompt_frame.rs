@@ -1138,7 +1138,8 @@ mod tests {
         let req = guidance_request("m", &f, false, "Çalışma dizini: x");
         assert_eq!(req.thinking, Some(false));
         assert_eq!(req.max_retries, 1);
-        let required = &req.tools.clone().unwrap_or_default()[0]["function"]["parameters"]["required"];
+        let required =
+            &req.tools.clone().unwrap_or_default()[0]["function"]["parameters"]["required"];
         assert_eq!(required, &json!(["rol", "cerceve", "cikti"]));
         let system = req.messages[0]["content"].as_str().unwrap_or_default();
         assert!(system.contains("şu boş alanlara"));

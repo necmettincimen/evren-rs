@@ -67,12 +67,20 @@ fn py_search(pattern: &str, text: &str) -> Result<bool, String> {
 fn check(out: &str, step: &Step) -> Result<(), String> {
     if let Some(exp) = str_of(step, "expect").filter(|s| !s.is_empty()) {
         if !out.contains(&exp) {
-            return Err(format!("beklenen metin yok: {}\n{}", py_repr(&exp), tail(out, 12)));
+            return Err(format!(
+                "beklenen metin yok: {}\n{}",
+                py_repr(&exp),
+                tail(out, 12)
+            ));
         }
     }
     if let Some(pat) = str_of(step, "expect_regex").filter(|s| !s.is_empty()) {
         if !py_search(&pat, out)? {
-            return Err(format!("beklenen desen yok: {}\n{}", py_repr(&pat), tail(out, 12)));
+            return Err(format!(
+                "beklenen desen yok: {}\n{}",
+                py_repr(&pat),
+                tail(out, 12)
+            ));
         }
     }
     Ok(())
@@ -117,9 +125,8 @@ pub fn shlex_quote(s: &str) -> String {
 fn missing_cmd_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?m)(: command not found|: komut bulunamadı)$").unwrap_or_else(|_| {
-            Regex::new(r"a^").unwrap_or_else(|_| unreachable!("sabit desen"))
-        })
+        Regex::new(r"(?m)(: command not found|: komut bulunamadı)$")
+            .unwrap_or_else(|_| Regex::new(r"a^").unwrap_or_else(|_| unreachable!("sabit desen")))
     })
 }
 
@@ -197,7 +204,11 @@ fn op_ssh(step: &Step, root: &Path, dry: bool, ctx: &mut Ctx) -> Result<String, 
     check(&out, step)?;
     save(step, &out, root, ctx)?;
     let last = first_chars(&tail(&out, 1), 160).to_owned();
-    Ok(if last.is_empty() { "tamam".into() } else { last })
+    Ok(if last.is_empty() {
+        "tamam".into()
+    } else {
+        last
+    })
 }
 
 fn op_scp(step: &Step, root: &Path, dry: bool) -> Result<String, String> {
@@ -289,15 +300,17 @@ fn http_run(step: &Step, root: &Path) -> Result<(u16, String), String> {
         .map(|m| {
             m.iter()
                 .map(|(k, v)| {
-                    let v = v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string());
+                    let v = v
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| v.to_string());
                     (k.clone(), v)
                 })
                 .collect()
         })
         .unwrap_or_default();
-    let has = |h: &[(String, String)], name: &str| {
-        h.iter().any(|(k, _)| k.eq_ignore_ascii_case(name))
-    };
+    let has =
+        |h: &[(String, String)], name: &str| h.iter().any(|(k, _)| k.eq_ignore_ascii_case(name));
     if let Some(keys) = step.get("basic_env").and_then(Value::as_array) {
         if !keys.is_empty() {
             let mut vals = Vec::new();
@@ -449,11 +462,9 @@ pub fn expand(value: &Value, ctx: &HashMap<String, String>) -> Value {
             });
             Value::String(s.into_owned())
         }
-        Value::Object(m) => Value::Object(
-            m.iter()
-                .map(|(k, v)| (k.clone(), expand(v, ctx)))
-                .collect(),
-        ),
+        Value::Object(m) => {
+            Value::Object(m.iter().map(|(k, v)| (k.clone(), expand(v, ctx))).collect())
+        }
         Value::Array(a) => Value::Array(a.iter().map(|v| expand(v, ctx)).collect()),
         other => other.clone(),
     }
@@ -484,7 +495,10 @@ mod tests {
         assert_eq!(shlex_quote(""), "''");
         assert_eq!(base64_encode(b"user:pa"), "dXNlcjpwYQ==");
         assert_eq!(base64_encode(b"abc"), "YWJj");
-        assert_eq!(py_json_ascii(&json!({"a": "ç", "b": [1, 2]})), r#"{"a": "\u00e7", "b": [1, 2]}"#);
+        assert_eq!(
+            py_json_ascii(&json!({"a": "ç", "b": [1, 2]})),
+            r#"{"a": "\u00e7", "b": [1, 2]}"#
+        );
     }
 
     #[test]
@@ -493,9 +507,15 @@ mod tests {
         let mut ctx = HashMap::new();
         let step = |v: Value| v.as_object().cloned().unwrap_or_default();
         let s = step(json!({"host": "u@h", "cmd": "uptime"}));
-        assert_eq!(op_ssh(&s, &root, true, &mut ctx), Ok("ssh u@h: uptime".into()));
+        assert_eq!(
+            op_ssh(&s, &root, true, &mut ctx),
+            Ok("ssh u@h: uptime".into())
+        );
         let s = step(json!({"url": "https://x/y"}));
-        assert_eq!(op_http(&s, &root, true, &mut ctx), Ok("GET https://x/y".into()));
+        assert_eq!(
+            op_http(&s, &root, true, &mut ctx),
+            Ok("GET https://x/y".into())
+        );
         let s = step(json!({"src": "a", "dst": "u@h:/b"}));
         assert_eq!(op_scp(&s, &root, true), Ok("scp a -> u@h:/b".into()));
         let s = step(json!({"until": "x"}));

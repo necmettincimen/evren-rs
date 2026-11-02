@@ -85,13 +85,6 @@ const PHASE4_COMMANDS: &[&str] = &[
     "/playbook",
     "/diagnose",
     "/template",
-    "/track",
-    "/task",
-    "/progress",
-    "/checkpoint",
-    "/blockers",
-    "/check-in",
-    "/decisions",
     "/ssh",
     "/iterate",
     "/iterasyon",
@@ -284,6 +277,11 @@ pub async fn run(
             .collect::<Vec<_>>(),
     );
     print_info(FORM_INTRO);
+    if evren_core::workflow_state::checkpoint_path(workspace).exists() {
+        print_info(
+            "Kalıcı checkpoint bulundu. İncelemek için /checkpoint, onaylı yükleme için /continue.",
+        );
+    }
     if opts.continue_last {
         match list_sessions(workspace, 1).first() {
             Some(last) if session.load_session(last) => {
@@ -542,7 +540,10 @@ impl Repl {
             Ok(0) | Err(_) => return None,
             Ok(_) => {}
         }
-        if !matches!(line.trim().to_lowercase().as_str(), "e" | "evet" | "y" | "yes") {
+        if !matches!(
+            line.trim().to_lowercase().as_str(),
+            "e" | "evet" | "y" | "yes"
+        ) {
             return None;
         }
         session.set_mode(Mode::Normal);
@@ -553,7 +554,10 @@ impl Repl {
             .to_string_lossy()
             .replace('\\', "/");
         let plan_text = std::fs::read_to_string(&path).unwrap_or_default();
-        let steps = plan_text.lines().filter(|l| plan_step_re().is_match(l)).count();
+        let steps = plan_text
+            .lines()
+            .filter(|l| plan_step_re().is_match(l))
+            .count();
         // İki adımlı bir plan dört todo_write ve tam test koşusuyla uygulanmıştı.
         let how = if steps > 3 {
             session.load_plan_todos(&plan_text);
@@ -573,6 +577,9 @@ impl Repl {
         let Some(mut session) = self.session.take() else {
             return;
         };
+        if matches!(turn, Turn::Step(_)) {
+            extras::clear_checkpoint(&self.workspace);
+        }
         let cancel = session.reset_cancel();
         let watcher = EscWatcher::start(cancel.clone(), self.pause.clone(), self.queue.clone());
         let mut worker = tokio::spawn(async move {
@@ -607,6 +614,9 @@ impl Repl {
             self.interrupted = true;
         } else if result.starts_with("HATA:") {
             print_error(&result);
+        }
+        if !self.interrupted {
+            crate::workflow::after_turn(&session);
         }
         if self.printer.settings_dirty {
             session.reload_settings();
@@ -730,7 +740,11 @@ v{ver} Sürüm Notları:"
                 }
                 _ => print_warning("Kullanım: /auto [on|off]"),
             },
-            "/continue" => self.run_turn(Turn::Continue).await,
+            "/continue" => {
+                if crate::workflow::offer_restore(session) {
+                    self.run_turn(Turn::Continue).await;
+                }
+            }
             "/execute" => {
                 if arg.is_empty() {
                     print_warning("Kullanım: /execute <onay veya takip yanıtı>");
@@ -773,6 +787,12 @@ v{ver} Sürüm Notları:"
             "/resume" => print_warning(&phase4_message("/resume playbook")),
             "/docs" => crate::docs::repl_command(session, &arg),
             "/run" => self.run_command(&arg).await,
+            "/checkpoint" | "/blockers" | "/check-in" | "/decisions" => {
+                crate::workflow::command(session, &cmd, &arg);
+            }
+            "/track" => crate::workflow::track(&self.workspace, &arg),
+            "/task" => crate::workflow::task(&self.workspace, &arg),
+            "/progress" => crate::workflow::progress(&self.workspace, &arg),
             c if PHASE4_COMMANDS.contains(&c) => print_warning(&phase4_message(c)),
             _ => print_warning(&unknown_command_message(&typed)),
         }
@@ -928,11 +948,15 @@ mod tests {
                     | "/resume"
                     | "/run"
                     | "/docs"
+                    | "/track"
+                    | "/task"
+                    | "/progress"
+                    | "/checkpoint"
+                    | "/blockers"
+                    | "/check-in"
+                    | "/decisions"
             );
-            assert!(
-                handled || PHASE4_COMMANDS.contains(cmd),
-                "{cmd}"
-            );
+            assert!(handled || PHASE4_COMMANDS.contains(cmd), "{cmd}");
         }
         assert!(HELP_TEXT.contains("/exit         - Çıkış"));
     }

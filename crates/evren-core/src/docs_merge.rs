@@ -93,7 +93,10 @@ pub fn normalize_newlines(text: &str) -> String {
 
 /// Gövdeyi baş/son boş satırları atılmış satırlara çevirir.
 fn body_lines(body: &str) -> Vec<String> {
-    let mut lines: Vec<String> = normalize_newlines(body).split('\n').map(str::to_string).collect();
+    let mut lines: Vec<String> = normalize_newlines(body)
+        .split('\n')
+        .map(str::to_string)
+        .collect();
     while lines.first().is_some_and(|l| l.trim().is_empty()) {
         lines.remove(0);
     }
@@ -113,8 +116,15 @@ fn split(text: &str) -> Split {
     let bom = text.starts_with('\u{feff}');
     let body = text.strip_prefix('\u{feff}').unwrap_or(text);
     let newline = if body.contains("\r\n") { "\r\n" } else { "\n" };
-    let lines = normalize_newlines(body).split('\n').map(str::to_string).collect();
-    Split { lines, newline, bom }
+    let lines = normalize_newlines(body)
+        .split('\n')
+        .map(str::to_string)
+        .collect();
+    Split {
+        lines,
+        newline,
+        bom,
+    }
 }
 
 fn join(lines: &[String], newline: &str, bom: bool) -> String {
@@ -143,22 +153,41 @@ pub fn parse_sections(text: &str) -> (Vec<SectionSpan>, Vec<String>) {
         let n = index + 1;
         if kind == "start" {
             if let Some((open_name, _)) = &open {
-                return (vec![], vec![format!("satır {n}: '{name}' bloğu '{open_name}' bloğu içinde açıldı")]);
+                return (
+                    vec![],
+                    vec![format!(
+                        "satır {n}: '{name}' bloğu '{open_name}' bloğu içinde açıldı"
+                    )],
+                );
             }
             if !is_valid_section_name(&name) {
-                return (vec![], vec![format!("satır {n}: geçersiz bölüm adı '{name}'")]);
+                return (
+                    vec![],
+                    vec![format!("satır {n}: geçersiz bölüm adı '{name}'")],
+                );
             }
             if sections.iter().any(|s| s.name == name) {
-                return (vec![], vec![format!("satır {n}: '{name}' bölümü tekrar ediyor")]);
+                return (
+                    vec![],
+                    vec![format!("satır {n}: '{name}' bölümü tekrar ediyor")],
+                );
             }
             open = Some((name, index));
             continue;
         }
         let Some((open_name, open_index)) = open.take() else {
-            return (vec![], vec![format!("satır {n}: açık blok olmadan '{name}' kapatıldı")]);
+            return (
+                vec![],
+                vec![format!("satır {n}: açık blok olmadan '{name}' kapatıldı")],
+            );
         };
         if name != open_name {
-            return (vec![], vec![format!("satır {n}: '{name}' kapatıldı ama açık blok '{open_name}'")]);
+            return (
+                vec![],
+                vec![format!(
+                    "satır {n}: '{name}' kapatıldı ama açık blok '{open_name}'"
+                )],
+            );
         }
         sections.push(SectionSpan {
             name: open_name,
@@ -168,7 +197,13 @@ pub fn parse_sections(text: &str) -> (Vec<SectionSpan>, Vec<String>) {
         });
     }
     if let Some((open_name, open_index)) = open {
-        return (vec![], vec![format!("satır {}: '{open_name}' bloğu kapatılmadı", open_index + 1)]);
+        return (
+            vec![],
+            vec![format!(
+                "satır {}: '{open_name}' bloğu kapatılmadı",
+                open_index + 1
+            )],
+        );
     }
     (sections, Vec::new())
 }
@@ -185,7 +220,10 @@ pub fn extract_sections(text: &str) -> BTreeMap<String, String> {
     if !errors.is_empty() {
         return BTreeMap::new();
     }
-    sections.into_iter().map(|s| (s.name.clone(), s.body_text())).collect()
+    sections
+        .into_iter()
+        .map(|s| (s.name.clone(), s.body_text()))
+        .collect()
 }
 
 /// Sonuç: (yeni metin, değişen adlar, hatalar). Hata varsa metin girdiyle aynıdır.
@@ -225,7 +263,11 @@ pub fn render_sections(
         return unchanged(Vec::new());
     }
 
-    let Split { mut lines, newline, bom } = split(text);
+    let Split {
+        mut lines,
+        newline,
+        bom,
+    } = split(text);
     let mut changed: Vec<String> = Vec::new();
 
     // Önceki indeksler geçerli kalsın diye sondan başa değiştirilir.
@@ -300,7 +342,11 @@ pub fn strip_managed(text: &str) -> (String, Vec<String>, Vec<String>) {
     if existing.is_empty() {
         return (text.to_string(), Vec::new(), Vec::new());
     }
-    let Split { mut lines, newline, bom } = split(text);
+    let Split {
+        mut lines,
+        newline,
+        bom,
+    } = split(text);
     let mut removed: Vec<String> = existing.iter().map(|s| s.name.clone()).collect();
     removed.sort();
     let mut spans: Vec<&SectionSpan> = existing.iter().collect();
@@ -430,13 +476,28 @@ mod tests {
         let r = render_sections("", &secs, true, &["b", "a"]);
         assert_eq!(
             r.text,
-            format!("{}\nB\n{}\n\n{}\nA\n{}\n", sm("b"), em("b"), sm("a"), em("a"))
+            format!(
+                "{}\nB\n{}\n\n{}\nA\n{}\n",
+                sm("b"),
+                em("b"),
+                sm("a"),
+                em("a")
+            )
         );
     }
 
     #[test]
     fn strip_keeps_human_text() {
-        let text = doc(&["# agent.md", "", "## Notlar", "elle metin", "", &sm("a"), "makine metni", &em("a")]);
+        let text = doc(&[
+            "# agent.md",
+            "",
+            "## Notlar",
+            "elle metin",
+            "",
+            &sm("a"),
+            "makine metni",
+            &em("a"),
+        ]);
         let (new, removed, errors) = strip_managed(&text);
         assert!(errors.is_empty());
         assert_eq!(removed, vec!["a".to_string()]);

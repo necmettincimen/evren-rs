@@ -209,7 +209,10 @@ pub fn summarize_task(records: &[Record]) -> TaskSummary {
     };
 
     TaskSummary {
-        task_id: records.first().map(|r| text(r, "task_id")).unwrap_or_default(),
+        task_id: records
+            .first()
+            .map(|r| text(r, "task_id"))
+            .unwrap_or_default(),
         ts: text(start, "ts"),
         model: text(start, "model"),
         mode: text(start, "mode"),
@@ -221,7 +224,10 @@ pub fn summarize_task(records: &[Record]) -> TaskSummary {
         prompt_tokens: prompt_total,
         cache_pct,
         repeated,
-        blocked: tools.iter().filter(|r| r.get("blocked").is_some_and(truthy)).count(),
+        blocked: tools
+            .iter()
+            .filter(|r| r.get("blocked").is_some_and(truthy))
+            .count(),
         failed: tools
             .iter()
             .filter(|r| {
@@ -351,7 +357,11 @@ pub enum DebugReport {
 }
 
 /// `print_last_task`: sondan `task_index`. görevin adım tablosu (düz metin biçimi).
-pub fn last_task_report(workspace_root: &Path, task_index: usize, trace_enabled: bool) -> DebugReport {
+pub fn last_task_report(
+    workspace_root: &Path,
+    task_index: usize,
+    trace_enabled: bool,
+) -> DebugReport {
     if task_index < 1 {
         return DebugReport::Warning(
             "Görev sırası 1 veya daha büyük olmalı (1 = son görev).".into(),
@@ -405,7 +415,10 @@ mod tests {
     #[test]
     fn empty_and_bad_index() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(matches!(last_task_report(dir.path(), 0, true), DebugReport::Warning(_)));
+        assert!(matches!(
+            last_task_report(dir.path(), 0, true),
+            DebugReport::Warning(_)
+        ));
         let DebugReport::Info(msg) = last_task_report(dir.path(), 1, false) else {
             panic!("bilgi beklenirdi");
         };
@@ -450,7 +463,11 @@ mod tests {
         assert_eq!(last[1], "Adım\tTür\tÖzet\tms\tSonuç kr.\tDurum");
         assert_eq!(last[2], "1\tistek\tx • kullanım bilgisi yok\t100\t\t");
         assert!(last[3].contains("prompt — token • önbellek —"));
-        assert!(last[3].ends_with("toplam 0.1 sn • sonuç: tamamlanmadı (görev sürüyor ya da süreç kapandı)"));
-        assert!(matches!(last_task_report(dir.path(), 3, true), DebugReport::Warning(_)));
+        assert!(last[3]
+            .ends_with("toplam 0.1 sn • sonuç: tamamlanmadı (görev sürüyor ya da süreç kapandı)"));
+        assert!(matches!(
+            last_task_report(dir.path(), 3, true),
+            DebugReport::Warning(_)
+        ));
     }
 }

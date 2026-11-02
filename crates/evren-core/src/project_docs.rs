@@ -40,19 +40,34 @@ const LOCK_TTL_SECONDS: u64 = 120;
 const MAX_MAP_LINES: usize = 25;
 /// CLI'nin kendi belgeleri proje haritasında görünmez; yoksa harita yazıldığı
 /// anda değişir ve her çalıştırma `git status`'u kirletir.
-const OWN_DOC_NAMES: [&str; 4] = ["agent.md", "evren-agent.md", "changelog.md", "evren-changelog.md"];
+const OWN_DOC_NAMES: [&str; 4] = [
+    "agent.md",
+    "evren-agent.md",
+    "changelog.md",
+    "evren-changelog.md",
+];
 const MAX_CHANGELOG_ENTRY_CHARS: usize = 1200;
 const RECENT_SESSION_ROWS: usize = 10;
 const MAX_AGENTS_REFERENCE_CHARS: usize = 1500;
 
 /// İşaretsiz belgeyi benimserken bölüm sırası.
-pub const AGENT_SECTIONS: [&str; 5] =
-    ["identity", "runtime_env", "project_map", "conventions", "current_focus"];
+pub const AGENT_SECTIONS: [&str; 5] = [
+    "identity",
+    "runtime_env",
+    "project_map",
+    "conventions",
+    "current_focus",
+];
 
 /// Prompt'a enjeksiyon sırası: küçük ve yönlendirici bölümler önce; en hacimli
 /// ve en bayat `project_map` sonda durur, bütçe yetmezse ilk o düşer.
-const CONTEXT_SECTION_PRIORITY: [&str; 5] =
-    ["conventions", "current_focus", "identity", "runtime_env", "project_map"];
+const CONTEXT_SECTION_PRIORITY: [&str; 5] = [
+    "conventions",
+    "current_focus",
+    "identity",
+    "runtime_env",
+    "project_map",
+];
 const CHANGELOG_SECTIONS: [&str; 1] = ["recent"];
 
 /// Varsayılan bağlam bütçesi (token); her adımda yeniden gönderilir.
@@ -154,7 +169,9 @@ pub fn docs_token_budget(config: &Config) -> i64 {
     if raw.is_empty() {
         return DEFAULT_DOCS_TOKENS;
     }
-    raw.parse::<i64>().map(|v| v.max(0)).unwrap_or(DEFAULT_DOCS_TOKENS)
+    raw.parse::<i64>()
+        .map(|v| v.max(0))
+        .unwrap_or(DEFAULT_DOCS_TOKENS)
 }
 
 // ------------------------------------------------------------ yardımcılar
@@ -202,7 +219,11 @@ fn warn(root: &Path, message: &str) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
         let _ = writeln!(f, "{} {message}", now_iso());
     }
 }
@@ -244,7 +265,10 @@ fn file_names(root: &Path) -> Option<BTreeSet<String>> {
 }
 
 fn lowered(names: &BTreeSet<String>) -> BTreeMap<String, String> {
-    names.iter().map(|n| (n.to_lowercase(), n.clone())).collect()
+    names
+        .iter()
+        .map(|n| (n.to_lowercase(), n.clone()))
+        .collect()
 }
 
 /// Farklı harfli kardeşi ezemeyecek ajan belgesi adı: (ad, çakışma notu).
@@ -307,7 +331,10 @@ fn write_text(root: &Path, path: &Path, text: &str) -> bool {
     match safe_write_file(&path.to_string_lossy(), text, root, Some(backup), None) {
         Ok(_) => true,
         Err((_, error)) => {
-            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
             warn(root, &format!("yazma reddedildi {name}: {error}"));
             false
         }
@@ -323,7 +350,11 @@ fn git_info(root: &Path) -> (String, String) {
     };
     let commit = crate::git::git_run(&["log", "-1", "--format=%h %ad", "--date=short"], root, t)
         .unwrap_or_default();
-    let branch = if branch.is_empty() { "git yok".to_string() } else { branch };
+    let branch = if branch.is_empty() {
+        "git yok".to_string()
+    } else {
+        branch
+    };
     (branch, commit)
 }
 
@@ -378,8 +409,10 @@ pub fn runtime_env_body(root: &Path, config: &Config) -> String {
 
 /// CLI'nin bu proje dizininde kendi ürettiği girdiler (küçük harf).
 fn cli_owned_entries(root: &Path) -> BTreeSet<String> {
-    let mut owned: BTreeSet<String> =
-        ["skills.md", "commands.md", "lessons.md"].iter().map(|s| s.to_string()).collect();
+    let mut owned: BTreeSet<String> = ["skills.md", "commands.md", "lessons.md"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     let marker = read_text(&root.join("context").join("README.md"));
     if marker.starts_with("# EVREN CLI destek dosyalar") {
         owned.insert("context".into());
@@ -427,13 +460,19 @@ pub fn project_map_body(root: &Path) -> String {
     let files: Vec<String> = stats
         .files
         .iter()
-        .filter(|f| !OWN_DOC_NAMES.contains(&base_name(f).as_str()) && !is_cli_owned_path(f, &cli_owned))
+        .filter(|f| {
+            !OWN_DOC_NAMES.contains(&base_name(f).as_str()) && !is_cli_owned_path(f, &cli_owned)
+        })
         .cloned()
         .collect();
     let own_count = stats.files.len() - files.len();
     let mut exts = stats.extension_counts.clone();
     if own_count > 0 {
-        let md = exts.get(".md").copied().unwrap_or(0).saturating_sub(own_count);
+        let md = exts
+            .get(".md")
+            .copied()
+            .unwrap_or(0)
+            .saturating_sub(own_count);
         if md == 0 {
             exts.remove(".md");
         } else {
@@ -443,10 +482,25 @@ pub fn project_map_body(root: &Path) -> String {
     let size_kb = (stats.total_size_kb - own_docs_size_kb(root)).max(0.0);
     let mut top: Vec<(&String, &usize)> = exts.iter().collect();
     top.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
-    let top: Vec<String> = top.iter().take(8).map(|(e, c)| format!("{e} {c}")).collect();
+    let top: Vec<String> = top
+        .iter()
+        .take(8)
+        .map(|(e, c)| format!("{e} {c}"))
+        .collect();
     let mut lines = vec![
-        format!("- Dosya sayısı (taranan): {} | boyut: {} KB", files.len(), py_float1(size_kb)),
-        format!("- Uzantılar: {}", if top.is_empty() { "yok".to_string() } else { top.join(", ") }),
+        format!(
+            "- Dosya sayısı (taranan): {} | boyut: {} KB",
+            files.len(),
+            py_float1(size_kb)
+        ),
+        format!(
+            "- Uzantılar: {}",
+            if top.is_empty() {
+                "yok".to_string()
+            } else {
+                top.join(", ")
+            }
+        ),
     ];
     let entry = entry_points(root, &files);
     if !entry.is_empty() {
@@ -477,13 +531,22 @@ fn entry_points(root: &Path, files: &[String]) -> String {
             hints.push(format!("`{manifest}`"));
         }
     }
-    for candidate in ["src/cli.py", "cli.py", "main.py", "manage.py", "package.json", "src/main.rs"] {
+    for candidate in [
+        "src/cli.py",
+        "cli.py",
+        "main.py",
+        "manage.py",
+        "package.json",
+        "src/main.rs",
+    ] {
         if files.iter().any(|f| f == candidate) || root.join(candidate).exists() {
             hints.push(format!("`{candidate}`"));
         }
     }
-    let packages: BTreeSet<&str> =
-        files.iter().filter_map(|p| p.split_once('/').map(|(a, _)| a)).collect();
+    let packages: BTreeSet<&str> = files
+        .iter()
+        .filter_map(|p| p.split_once('/').map(|(a, _)| a))
+        .collect();
     let packages: Vec<String> = packages.iter().take(6).map(|n| format!("`{n}/`")).collect();
     if !packages.is_empty() {
         hints.push(format!("paketler: {}", packages.join(", ")));
@@ -541,17 +604,53 @@ fn or_default<'a>(value: &'a str, default: &'a str) -> &'a str {
 pub fn current_focus_body(root: &Path, goal: &str, status: &str) -> String {
     let session = session_of(&load_state(root));
     let goal = goal.trim();
-    let last_goal = or_default(or_default(goal, str_of(&session, "last_goal")), "(henüz görev kaydı yok)");
+    let last_goal = or_default(
+        or_default(goal, str_of(&session, "last_goal")),
+        "(henüz görev kaydı yok)",
+    );
     let status = status.trim();
-    [
-        format!("- Son oturum: {}", or_default(str_of(&session, "last_run"), "(kayıt yok)")),
+    let mut lines = vec![
+        format!(
+            "- Son oturum: {}",
+            or_default(str_of(&session, "last_run"), "(kayıt yok)")
+        ),
         format!("- Son görev: {}", clip(last_goal, 120)),
         format!(
             "- Durum: {}",
-            or_default(or_default(status, str_of(&session, "last_status")), "bilinmiyor")
+            or_default(
+                or_default(status, str_of(&session, "last_status")),
+                "bilinmiyor"
+            )
         ),
-    ]
-    .join("\n")
+    ];
+    let blockers = open_blockers(root);
+    if !blockers.is_empty() {
+        lines.push(format!("- Açık engeller: {}", blockers.join("; ")));
+    }
+    lines.join("\n")
+}
+
+fn open_blockers(root: &Path) -> Vec<String> {
+    let tasks = crate::tracking::list_tasks("all", root);
+    let Ok(flagged) = crate::workflow_state::review_tasks(&tasks, None) else {
+        return Vec::new();
+    };
+    flagged
+        .iter()
+        .filter(|t| {
+            crate::workflow_state::flags_of(t)
+                .iter()
+                .any(|f| f == "blocked")
+        })
+        .take(5)
+        .map(|t| {
+            format!(
+                "{}: {}",
+                crate::tracking::str_field(t, "id"),
+                clip(crate::tracking::str_field(t, "description"), 80)
+            )
+        })
+        .collect()
 }
 
 // ------------------------------------------------------------ agent.md
@@ -605,7 +704,10 @@ pub fn agent_sections(
         ("runtime_env", redact_text(&runtime_env_body(root, config))),
         ("project_map", redact_text(&project_map_body(root))),
         ("conventions", redact_text(&conventions_body())),
-        ("current_focus", redact_text(&current_focus_body(root, goal, status))),
+        (
+            "current_focus",
+            redact_text(&current_focus_body(root, goal, status)),
+        ),
     ])
 }
 
@@ -638,7 +740,10 @@ fn ensure_agent_doc(root: &Path, config: &Config, opts: &DocsOptions, result: &m
             result.notes.push(format!(
                 "{doc_name} içinde yönetilen blok yok; eklemek için `/docs refresh --adopt`"
             ));
-            warn(root, &format!("{doc_name}: yönetilen blok yok, dokunulmadı"));
+            warn(
+                root,
+                &format!("{doc_name}: yönetilen blok yok, dokunulmadı"),
+            );
             return;
         }
         render_sections(&current, &sections, true, &AGENT_SECTIONS)
@@ -647,7 +752,9 @@ fn ensure_agent_doc(root: &Path, config: &Config, opts: &DocsOptions, result: &m
     };
     if let Some(err) = rendered.errors.first() {
         result.skipped.push(doc_name.clone());
-        result.notes.push(format!("{doc_name}: {err} (dokunulmadı)"));
+        result
+            .notes
+            .push(format!("{doc_name}: {err} (dokunulmadı)"));
         warn(root, &format!("{doc_name}: {err}"));
         return;
     }
@@ -771,7 +878,11 @@ pub fn append_changelog_entry(root: &Path, config: &Config, entry: &Value) -> bo
     }
     let path = changelog_path(root);
     let created = !path.exists();
-    let text = if created { changelog_skeleton(root) } else { read_text(&path) };
+    let text = if created {
+        changelog_skeleton(root)
+    } else {
+        read_text(&path)
+    };
 
     let goal = clip(&clean_goal(&redact_text(str_of(entry, "goal"))), 160);
     let goal = or_default(&goal, "(görev belirtilmedi)").to_string();
@@ -787,14 +898,22 @@ pub fn append_changelog_entry(root: &Path, config: &Config, entry: &Value) -> bo
     let files_text = if files.is_empty() {
         "dosya değişikliği yok".to_string()
     } else {
-        files.iter().take(12).map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", ")
+        files
+            .iter()
+            .take(12)
+            .map(|f| format!("`{f}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
     };
     let block = [
         format!("## {}", stamp()),
         String::new(),
         format!("- Görev: {goal}"),
         format!("- Değişen dosyalar: {files_text}"),
-        format!("- Doğrulama: {}", or_default(&verification, "doğrulama çalıştırılmadı")),
+        format!(
+            "- Doğrulama: {}",
+            or_default(&verification, "doğrulama çalıştırılmadı")
+        ),
     ];
     let mut chunk = block.join("\n");
     if chars(&chunk) > MAX_CHANGELOG_ENTRY_CHARS {
@@ -802,7 +921,12 @@ pub fn append_changelog_entry(root: &Path, config: &Config, entry: &Value) -> bo
     }
 
     let recent = recent_lines(&text, &goal, &files);
-    let rendered = render_sections(&text, &BTreeMap::from([("recent".to_string(), recent)]), false, &[]);
+    let rendered = render_sections(
+        &text,
+        &BTreeMap::from([("recent".to_string(), recent)]),
+        false,
+        &[],
+    );
     if let Some(err) = rendered.errors.first() {
         warn(root, &format!("{CHANGELOG_NAME}: {err}"));
         return false;
@@ -826,7 +950,12 @@ fn recent_lines(text: &str, goal: &str, files: &[String]) -> String {
         .filter(|l| l.trim().starts_with('-') && !l.contains("henüz kayıt yok"))
         .map(str::to_string)
         .collect();
-    let mut files_part = files.iter().take(4).map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", ");
+    let mut files_part = files
+        .iter()
+        .take(4)
+        .map(|f| format!("`{f}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
     if files_part.is_empty() {
         files_part = "dosya değişikliği yok".to_string();
     }
@@ -844,7 +973,10 @@ fn recent_lines(text: &str, goal: &str, files: &[String]) -> String {
 
 fn ensure_changelog(root: &Path, result: &mut DocsResult) {
     let path = changelog_path(root);
-    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
     result.changelog = name.clone();
     // Beklenen kararlı durum (repo CHANGELOG.md taşır): yalnız oluşturmada açıklanır.
     if name != CHANGELOG_NAME && !path.exists() {
@@ -878,7 +1010,10 @@ pub fn ensure_project_docs(root: &Path, config: &Config, opts: &DocsOptions) -> 
             .notes
             .push("salt-okuma kipi: bağlam dosyaları okundu, yazılmadı".to_string());
         let path = agent_doc_path(&root);
-        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         result.agent_doc = name.clone();
         result.skipped.push(name);
         return result;
@@ -905,7 +1040,10 @@ fn record_session(root: &Path, goal: &str, status: &str) {
     let mut session = session_of(&state);
     if !goal.trim().is_empty() {
         session.insert("last_goal".into(), json!(clip(&redact_text(goal), 200)));
-        session.insert("last_status".into(), json!(or_default(status.trim(), "çalışıyor")));
+        session.insert(
+            "last_status".into(),
+            json!(or_default(status.trim(), "çalışıyor")),
+        );
         session.insert("last_run".into(), json!(stamp()));
         session.insert("workspace".into(), json!(root.to_string_lossy()));
     }
@@ -924,7 +1062,9 @@ fn agents_reference_block(root: &Path) -> String {
     if !names.contains(AGENTS_REFERENCE_NAME) {
         return String::new();
     }
-    let mut text = read_text(&root.join(AGENTS_REFERENCE_NAME)).trim().to_string();
+    let mut text = read_text(&root.join(AGENTS_REFERENCE_NAME))
+        .trim()
+        .to_string();
     if text.is_empty() {
         return String::new();
     }
@@ -979,7 +1119,10 @@ fn human_notes(text: &str) -> String {
 /// Proje ajan belgesinden sistem istemi bloğu.
 pub fn agent_md_context_block(root: &Path, max_chars: usize) -> String {
     let path = agent_doc_path(root);
-    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
     let text = read_text(&path);
     if text.is_empty() {
         return String::new();
@@ -990,7 +1133,10 @@ pub fn agent_md_context_block(root: &Path, max_chars: usize) -> String {
         if chars(&body) > max_chars {
             body = format!("{}\n[…{name} kırpıldı]", take(&body, max_chars).trim_end());
         }
-        return format!("PROJE BELGESİ ({name}, elle yönetiliyor):\n{}", redact_text(&body));
+        return format!(
+            "PROJE BELGESİ ({name}, elle yönetiliyor):\n{}",
+            redact_text(&body)
+        );
     }
     let mut order: Vec<&str> = CONTEXT_SECTION_PRIORITY
         .iter()
@@ -1011,11 +1157,17 @@ pub fn agent_md_context_block(root: &Path, max_chars: usize) -> String {
     )];
     let mut used = 0usize;
     for (i, sec) in order.iter().enumerate() {
-        let chunk = format!("[{sec}]\n{}", sections.get(*sec).map(String::as_str).unwrap_or(""))
-            .trim()
-            .to_string();
+        let chunk = format!(
+            "[{sec}]\n{}",
+            sections.get(*sec).map(String::as_str).unwrap_or("")
+        )
+        .trim()
+        .to_string();
         if used + chars(&chunk) > max_chars {
-            lines.push(format!("[…{name} kırpıldı: kalan {} bölüm]", order.len() - i));
+            lines.push(format!(
+                "[…{name} kırpıldı: kalan {} bölüm]",
+                order.len() - i
+            ));
             break;
         }
         used += chars(&chunk);
@@ -1097,7 +1249,12 @@ pub fn docs_digest(root: &Path, max_chars: usize) -> String {
     }
     let mut lines = vec![format!("Proje: {} ({})", root_title(&root), root.display())];
     for name in ["runtime_env", "project_map", "conventions"] {
-        for line in sections.get(name).map(String::as_str).unwrap_or("").split('\n') {
+        for line in sections
+            .get(name)
+            .map(String::as_str)
+            .unwrap_or("")
+            .split('\n')
+        {
             let line = line.trim_matches(['-', ' ']).trim();
             if !line.is_empty() {
                 lines.push(line.to_string());
@@ -1107,7 +1264,10 @@ pub fn docs_digest(root: &Path, max_chars: usize) -> String {
     let recent = extract_sections(&read_text(&changelog_path(&root)))
         .remove("recent")
         .unwrap_or_default();
-    let rows: Vec<&str> = recent.split('\n').filter(|l| l.trim().starts_with('-')).collect();
+    let rows: Vec<&str> = recent
+        .split('\n')
+        .filter(|l| l.trim().starts_with('-'))
+        .collect();
     let tail: Vec<String> = rows[rows.len().saturating_sub(3)..]
         .iter()
         .map(|l| clip(l.trim_start_matches(['-', ' ']), 90))
@@ -1141,7 +1301,11 @@ fn is_writable(dir: &Path) -> bool {
 /// Python'daki kaynak ağacı adayı derlenmiş ikilide yoktur.
 pub fn cli_docs_dir(config: &Config) -> PathBuf {
     let mut candidates: Vec<PathBuf> = Vec::new();
-    let raw = config.get("EVREN_CLI_HOME").unwrap_or("").trim().to_string();
+    let raw = config
+        .get("EVREN_CLI_HOME")
+        .unwrap_or("")
+        .trim()
+        .to_string();
     if !raw.is_empty() {
         let expanded = match raw.strip_prefix('~') {
             Some(rest) => dirs::home_dir()
@@ -1161,7 +1325,6 @@ pub fn cli_docs_dir(config: &Config) -> PathBuf {
     }
     resolve_path(&std::env::temp_dir())
 }
-
 
 /// `evren docs status` / `/docs status` raporu.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1192,7 +1355,11 @@ pub fn docs_status(root: &Path, config: &Config) -> DocsStatus {
         root: root.to_string_lossy().to_string(),
         enabled,
         reason,
-        agent_doc: if path.exists() { path.to_string_lossy().to_string() } else { String::new() },
+        agent_doc: if path.exists() {
+            path.to_string_lossy().to_string()
+        } else {
+            String::new()
+        },
         agent_sections,
         changelog: if changelog.exists() {
             changelog.to_string_lossy().to_string()
@@ -1200,7 +1367,11 @@ pub fn docs_status(root: &Path, config: &Config) -> DocsStatus {
             String::new()
         },
         changelog_entries: read_text(&changelog).matches("\n## ").count(),
-        state: if state.exists() { state.to_string_lossy().to_string() } else { String::new() },
+        state: if state.exists() {
+            state.to_string_lossy().to_string()
+        } else {
+            String::new()
+        },
         token_budget: docs_token_budget(config),
     }
 }
@@ -1210,8 +1381,12 @@ pub fn unmark_docs(root: &Path) -> DocsResult {
     let root = resolve_path(root);
     let mut result = DocsResult::new(&root);
     let names = [
-        agent_doc_path(&root).file_name().map(|n| n.to_string_lossy().to_string()),
-        changelog_path(&root).file_name().map(|n| n.to_string_lossy().to_string()),
+        agent_doc_path(&root)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string()),
+        changelog_path(&root)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string()),
     ];
     for name in names.into_iter().flatten() {
         let path = root.join(&name);
@@ -1293,7 +1468,10 @@ mod tests {
         run(&root, &c, DocsOptions::default());
         let before = std::fs::read(root.join("agent.md")).unwrap_or_default();
         let r = run(&root, &c, DocsOptions::default());
-        assert_eq!(std::fs::read(root.join("agent.md")).unwrap_or_default(), before);
+        assert_eq!(
+            std::fs::read(root.join("agent.md")).unwrap_or_default(),
+            before
+        );
         assert!(r.updated.is_empty());
         assert!(r.skipped.contains(&"agent.md".to_string()));
         assert_eq!(r.summary(), "güncel");
@@ -1306,7 +1484,10 @@ mod tests {
         run(&root, &c, DocsOptions::default());
         let text = read(&root, "agent.md") + "\n## Benim kurallarım\nAsla force-push yapma.\n";
         write(&root, "agent.md", &text);
-        let opts = DocsOptions { goal: "ikinci görev".into(), ..Default::default() };
+        let opts = DocsOptions {
+            goal: "ikinci görev".into(),
+            ..Default::default()
+        };
         let r = run(&root, &c, opts);
         let after = read(&root, "agent.md");
         assert!(after.contains("Asla force-push yapma."));
@@ -1324,7 +1505,15 @@ mod tests {
         assert!(r.skipped.contains(&"agent.md".to_string()));
         assert!(r.notes.iter().any(|n| n.contains("--adopt")));
         // --adopt bölümleri ekler, elle metin kalır.
-        let r = run(&root, &cfg(&[]), DocsOptions { refresh: true, adopt: true, ..Default::default() });
+        let r = run(
+            &root,
+            &cfg(&[]),
+            DocsOptions {
+                refresh: true,
+                adopt: true,
+                ..Default::default()
+            },
+        );
         let text = read(&root, "agent.md");
         assert!(text.starts_with(original.trim_end()));
         assert!(text.contains("section=identity"));
@@ -1337,7 +1526,10 @@ mod tests {
         write(&root, "AGENTS.md", "# AGENTS.md\n\nProje kuralları.\n");
         let c = cfg(&[]);
         let r = run(&root, &c, DocsOptions::default());
-        assert_eq!(read(&root, "AGENTS.md"), "# AGENTS.md\n\nProje kuralları.\n");
+        assert_eq!(
+            read(&root, "AGENTS.md"),
+            "# AGENTS.md\n\nProje kuralları.\n"
+        );
         let names = file_names(&root).unwrap_or_default();
         if names.contains("agent.md") {
             // Büyük/küçük harf duyarlı dosya sistemi.
@@ -1355,20 +1547,34 @@ mod tests {
     #[test]
     fn output_safety() {
         let (_d, root) = tmp();
-        let opts = DocsOptions { goal: "evren_llm_GIZLI123 ile giriş".into(), ..Default::default() };
+        let opts = DocsOptions {
+            goal: "evren_llm_GIZLI123 ile giriş".into(),
+            ..Default::default()
+        };
         run(&root, &cfg(&[]), opts);
         let text = read(&root, "agent.md");
         assert!(!text.contains("evren_llm_GIZLI123"));
         assert!(text.contains("[REDACTED]"));
 
         let (_d2, root2) = tmp();
-        let r = run(&root2, &cfg(&[("EVREN_AUTO_DOCS", "false")]), DocsOptions::default());
+        let r = run(
+            &root2,
+            &cfg(&[("EVREN_AUTO_DOCS", "false")]),
+            DocsOptions::default(),
+        );
         assert!(r.disabled);
         assert!(!root2.join("agent.md").exists());
         assert_eq!(r.summary(), "kapalı (EVREN_AUTO_DOCS=false)");
 
         let (_d3, root3) = tmp();
-        let r = run(&root3, &cfg(&[]), DocsOptions { read_only: true, ..Default::default() });
+        let r = run(
+            &root3,
+            &cfg(&[]),
+            DocsOptions {
+                read_only: true,
+                ..Default::default()
+            },
+        );
         assert!(!root3.join("agent.md").exists());
         assert!(r.notes.iter().any(|n| n.contains("salt-okuma")));
     }
@@ -1421,7 +1627,10 @@ mod tests {
         let c = cfg(&[]);
         run(&root, &c, DocsOptions::default());
         assert_eq!(docs_context_block(&root, &c, Some(0)), "");
-        assert_eq!(docs_context_block(&root, &cfg(&[("EVREN_DOCS_TOKENS", "0")]), None), "");
+        assert_eq!(
+            docs_context_block(&root, &cfg(&[("EVREN_DOCS_TOKENS", "0")]), None),
+            ""
+        );
         assert!(!docs_context_block(&root, &c, None).is_empty());
     }
 
@@ -1440,7 +1649,10 @@ mod tests {
 
     #[test]
     fn clean_goal_strips_frame_template() {
-        assert_eq!(clean_goal("GÖREV: Brief: testleri düzelt."), "testleri düzelt");
+        assert_eq!(
+            clean_goal("GÖREV: Brief: testleri düzelt."),
+            "testleri düzelt"
+        );
         assert_eq!(
             clean_goal("Rol x. Çıktı, format ve teslim yüzeyidir. Brief: README yaz"),
             "README yaz"

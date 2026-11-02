@@ -151,7 +151,12 @@ impl RoleProfile {
     pub fn from_value(data: &Value, name: &str) -> RoleProfile {
         let empty = Map::new();
         let data = data.as_object().unwrap_or(&empty);
-        let text = |k: &str| data.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        let text = |k: &str| {
+            data.get(k)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        };
         let given = text("name");
         let name = if !given.is_empty() {
             given
@@ -227,7 +232,12 @@ impl RoleProfile {
                 }
             }
         }
-        let arg = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        let arg = |k: &str| {
+            args.get(k)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        };
         if name == "run_command" || name == "ssh_run" {
             let command = arg("command");
             if let Some(cmds) = &self.commands {
@@ -334,7 +344,12 @@ impl RoleProfile {
 }
 
 fn write_targets(name: &str, args: &Value) -> Vec<String> {
-    let arg = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    let arg = |k: &str| {
+        args.get(k)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
     match name {
         "apply_patch" => patch_file_re()
             .captures_iter(&arg("patch"))
@@ -462,7 +477,11 @@ mod tests {
             .check("write_file", &json!({"path": "src/a.py"}), &rel)
             .contains("yoluna yazamaz"));
         assert!(p
-            .check("run_command", &json!({"command": "sed -i s/a/b/ x.py"}), &rel)
+            .check(
+                "run_command",
+                &json!({"command": "sed -i s/a/b/ x.py"}),
+                &rel
+            )
             .contains("dosya değiştiren"));
         assert!(p
             .check(
@@ -485,7 +504,11 @@ mod tests {
     fn shipper_commands() {
         let p = load_profile("shipper", None).unwrap();
         assert_eq!(
-            p.check("run_command", &json!({"command": "cd x && git status"}), &rel),
+            p.check(
+                "run_command",
+                &json!({"command": "cd x && git status"}),
+                &rel
+            ),
             ""
         );
         assert!(p

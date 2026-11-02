@@ -191,7 +191,8 @@ pub fn custom_command_dirs(root: &Path) -> Vec<PathBuf> {
 
 fn custom_name_re() -> Option<&'static Regex> {
     static RE: OnceLock<Option<Regex>> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^/[a-z][\w-]*$").ok()).as_ref()
+    RE.get_or_init(|| Regex::new(r"^/[a-z][\w-]*$").ok())
+        .as_ref()
 }
 
 /// `/ad` → komut; proje dosyaları kullanıcı düzeyindekileri ezer.
@@ -264,7 +265,8 @@ pub fn render_custom_command(entry: &CustomCommand, args: &str) -> String {
 // /commit /review /init
 // --------------------------------------------------------------------------- //
 
-pub const REVIEW_PROMPT: &str = "ask: Çalışma dizinindeki değişiklikleri `git diff HEAD` ile incele ve kod incelemesi yap: \
+pub const REVIEW_PROMPT: &str =
+    "ask: Çalışma dizinindeki değişiklikleri `git diff HEAD` ile incele ve kod incelemesi yap: \
 hatalar, güvenlik, eksik testler, gereksiz karmaşıklık. Dosya:satır göstererek, önem sırasıyla, \
 kısa yaz. Dosyaları değiştirme.";
 
@@ -363,7 +365,8 @@ pub fn review_ready(root: &Path) -> bool {
 
 /// `/init`: AGENTS.md varsa üzerine yazma onayı.
 pub fn init_ready(root: &Path) -> bool {
-    if root.join("AGENTS.md").exists() && !prompt_confirm("AGENTS.md zaten var. Üzerine yazılsın mı?")
+    if root.join("AGENTS.md").exists()
+        && !prompt_confirm("AGENTS.md zaten var. Üzerine yazılsın mı?")
     {
         print_info("/init iptal edildi.");
         return false;
@@ -378,7 +381,12 @@ pub fn init_ready(root: &Path) -> bool {
 pub fn context(session: &AgentSession) {
     let tm = session.token_manager();
     let messages = session.messages();
-    let role = |m: &Value| m.get("role").and_then(Value::as_str).unwrap_or("").to_string();
+    let role = |m: &Value| {
+        m.get("role")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
     let system: i64 = messages
         .iter()
         .filter(|m| role(m) == "system")
@@ -457,7 +465,10 @@ pub fn rewind(session: &AgentSession) {
         print_info("Son görevde değiştirilen dosya kaydı yok.");
         return;
     }
-    print_info(&format!("Son görevde değişen dosyalar: {}", files.join(", ")));
+    print_info(&format!(
+        "Son görevde değişen dosyalar: {}",
+        files.join(", ")
+    ));
     if !prompt_confirm("Bu dosyalar yedeklerinden geri yüklensin mi?") {
         return;
     }
@@ -617,9 +628,9 @@ pub fn keys(session: &AgentSession, arg: &str) {
                 return;
             }
             match client.with_pool(|p| p.rotate()) {
-                None => print_warning(
-                    "Şu an kullanılabilir anahtar yok (hepsi beklemede/devre dışı).",
-                ),
+                None => {
+                    print_warning("Şu an kullanılabilir anahtar yok (hepsi beklemede/devre dışı).")
+                }
                 Some(key) => {
                     print_success(&format!("Sıradaki anahtara geçildi: {}", mask_key(&key)))
                 }
@@ -726,7 +737,10 @@ pub fn memory(session: &mut AgentSession, arg: &str) {
             .collect::<Vec<_>>()
             .join(" ");
     }
-    let parts: Vec<&str> = arg.splitn(3, char::is_whitespace).filter(|p| !p.is_empty()).collect();
+    let parts: Vec<&str> = arg
+        .splitn(3, char::is_whitespace)
+        .filter(|p| !p.is_empty())
+        .collect();
     let sub = parts.first().map(|s| s.to_lowercase()).unwrap_or_default();
     match sub.as_str() {
         "set" => {
@@ -787,7 +801,9 @@ pub fn memory(session: &mut AgentSession, arg: &str) {
                     println!("    - {text}");
                 }
             }
-            println!("\nKomutlar: /memory set <k> <v> | /memory note <metin>  (--global: tüm projeler)");
+            println!(
+                "\nKomutlar: /memory set <k> <v> | /memory note <metin>  (--global: tüm projeler)"
+            );
         }
     }
 }
@@ -915,7 +931,11 @@ mod tests {
     fn custom_commands_project_wins_and_builtin_skipped() {
         let proj = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
-        std::fs::write(proj.path().join("Deploy.md"), "# Yayına al\nAdımlar: $ARGUMENTS").unwrap();
+        std::fs::write(
+            proj.path().join("Deploy.md"),
+            "# Yayına al\nAdımlar: $ARGUMENTS",
+        )
+        .unwrap();
         std::fs::write(home.path().join("deploy.md"), "kullanıcı sürümü").unwrap();
         std::fs::write(home.path().join("lint.md"), "\n\n").unwrap();
         std::fs::write(proj.path().join("help.md"), "yerleşik").unwrap();
@@ -926,7 +946,10 @@ mod tests {
         let deploy = &cmds["/deploy"];
         assert_eq!(deploy.desc, "Yayına al");
         assert_eq!(cmds["/lint"].desc, "özel komut");
-        assert_eq!(render_custom_command(deploy, "prod"), "# Yayına al\nAdımlar: prod");
+        assert_eq!(
+            render_custom_command(deploy, "prod"),
+            "# Yayına al\nAdımlar: prod"
+        );
         assert_eq!(render_custom_command(&cmds["/lint"], "x"), "\n\n\n\nx");
         assert_eq!(render_custom_command(&cmds["/lint"], ""), "\n\n");
     }

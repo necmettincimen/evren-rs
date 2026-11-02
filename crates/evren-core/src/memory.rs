@@ -59,7 +59,8 @@ fn load_from(path: &Path) -> Map<String, Value> {
     let Ok(text) = std::fs::read_to_string(path) else {
         return empty_state();
     };
-    let Ok(Value::Object(data)) = serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}'))
+    let Ok(Value::Object(data)) =
+        serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}'))
     else {
         return empty_state();
     };

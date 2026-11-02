@@ -272,7 +272,13 @@ impl TaskTrace {
         } else {
             task_ref.to_string()
         };
-        let opt = |v: String| if v.is_empty() { Value::Null } else { Value::String(v) };
+        let opt = |v: String| {
+            if v.is_empty() {
+                Value::Null
+            } else {
+                Value::String(v)
+            }
+        };
         self.write(&json!({
             "type": "task_start",
             "task_id": self.task_id,

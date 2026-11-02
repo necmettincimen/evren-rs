@@ -11,6 +11,7 @@ pub mod oneshot;
 pub mod repl;
 pub mod shell;
 pub mod ui;
+pub mod workflow;
 
 pub use oneshot::{run_agent_once, AgentOnce};
 pub use repl::{run, ReplOptions};

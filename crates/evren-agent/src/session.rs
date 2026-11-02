@@ -646,6 +646,65 @@ impl AgentSession {
         }
     }
 
+    /// Duraklamış görevi `.evren/checkpoint.json` dosyasına maskeleyerek yazar.
+    pub fn save_checkpoint(&self) -> Result<std::path::PathBuf, String> {
+        let Some(mode) = self.pending_mode else {
+            return Err("Kaydedilecek duraklamış görev yok.".into());
+        };
+        let f = &self.frame;
+        let frame = json!({
+            "rol": f.rol, "cerceve": f.cerceve, "brief": f.brief,
+            "kisit": f.kisit, "cikti": f.cikti, "clarifications": f.clarifications,
+        });
+        evren_core::workflow_state::save_checkpoint(
+            &self.workspace_root,
+            &self.messages,
+            mode,
+            &self.model,
+            &frame,
+            &self.task_goal,
+        )
+    }
+
+    /// Kalıcı checkpoint'i yükler; sistem iletisi güncel kurulumdan yeniden kurulur.
+    pub fn restore_checkpoint(&mut self) -> Result<bool, String> {
+        let Some(state) = evren_core::workflow_state::load_checkpoint(&self.workspace_root)? else {
+            return Ok(false);
+        };
+        let s = |k: &str| {
+            state
+                .get(k)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        };
+        let fs = |k: &str| {
+            state["frame"]
+                .get(k)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        };
+        self.frame = PromptFrame {
+            rol: fs("rol"),
+            cerceve: fs("cerceve"),
+            brief: fs("brief"),
+            kisit: fs("kisit"),
+            cikti: fs("cikti"),
+            clarifications: fs("clarifications"),
+        };
+        self.refresh_context();
+        let mut messages = vec![json!({"role": "system", "content": self.system_prompt})];
+        if let Some(Value::Array(saved)) = state.get("messages") {
+            messages.extend(saved.iter().cloned());
+        }
+        self.messages = messages;
+        self.model = s("model");
+        self.pending_mode = Mode::parse(&s("mode"));
+        self.task_goal = s("goal");
+        Ok(true)
+    }
+
     /// Ctrl+C sonrası geçmişi kısa bir düzeltmeyle sürdürülebilir bırakır.
     pub fn note_interrupt(&mut self, mode: Mode) {
         self.close_open_tool_calls(

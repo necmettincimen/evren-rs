@@ -279,6 +279,11 @@ pub fn compose_system(
     if !docs.is_empty() {
         blocks.push(docs);
     }
+    match evren_core::workflow_state::decision_context(workspace_root) {
+        Ok(decisions) if !decisions.is_empty() => blocks.push(decisions),
+        Ok(_) => {}
+        Err(e) => eprintln!("Karar günlüğü bağlama yüklenemedi: {e}"),
+    }
     let mem = evren_core::memory::memory_context_block(workspace_root, 10);
     if !mem.is_empty() {
         blocks.push(mem);

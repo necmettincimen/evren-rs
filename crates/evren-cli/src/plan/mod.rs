@@ -315,7 +315,10 @@ fn op_clone_tree(step: &Step, root: &Path, dry: bool) -> Result<String, String> 
         step.get("exclude").cloned().unwrap_or(Value::Null),
     );
     args.insert("dry_run".into(), Value::Bool(dry));
-    Ok(tool_clone_tree(&ToolContext::load(root), &Value::Object(args)))
+    Ok(tool_clone_tree(
+        &ToolContext::load(root),
+        &Value::Object(args),
+    ))
 }
 
 /// Python `re.sub` şablonunu fancy-regex şablonuna çevirir.
@@ -380,7 +383,10 @@ fn glob_sorted(root: &Path, pattern: &str) -> Vec<PathBuf> {
         }
     }
     let mut cur = vec![root.to_path_buf()];
-    for seg in pattern.split(['/', '\\']).filter(|s| !s.is_empty() && *s != ".") {
+    for seg in pattern
+        .split(['/', '\\'])
+        .filter(|s| !s.is_empty() && *s != ".")
+    {
         let mut next = Vec::new();
         for p in &cur {
             if seg == "**" {
@@ -402,7 +408,8 @@ fn glob_sorted(root: &Path, pattern: &str) -> Vec<PathBuf> {
         }
         cur = next;
     }
-    let mut keyed: Vec<(Vec<String>, PathBuf)> = cur.into_iter().map(|p| (norm_parts(&p), p)).collect();
+    let mut keyed: Vec<(Vec<String>, PathBuf)> =
+        cur.into_iter().map(|p| (norm_parts(&p), p)).collect();
     keyed.sort();
     keyed.dedup_by(|a, b| a.0 == b.0);
     keyed.into_iter().map(|(_, p)| p).collect()
@@ -593,7 +600,9 @@ fn op_push(step: &Step, root: &Path, dry: bool, allow_push: bool) -> Result<Stri
         return Ok("push".into());
     }
     let repo = resolve_in_root(root, &req_str(step, "repo")?)?;
-    let mut branch = str_of(step, "branch").filter(|s| !s.is_empty()).unwrap_or_default();
+    let mut branch = str_of(step, "branch")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_default();
     if branch.is_empty() {
         branch = git_out(&repo, &["rev-parse", "--abbrev-ref", "HEAD"]);
     }
@@ -708,10 +717,7 @@ fn drone_trigger(repo: &Path, branch: &str, wait_s: f64) -> (String, Option<(Str
     let url = git_out(repo, &["remote", "get-url", "origin"]);
     let slug = Regex::new(r"github\.com[:/]([^/]+)/([^/\s]+?)(?:\.git)?$")
         .ok()
-        .and_then(|re| {
-            re.captures(&url)
-                .map(|m| format!("{}/{}", &m[1], &m[2]))
-        });
+        .and_then(|re| re.captures(&url).map(|m| format!("{}/{}", &m[1], &m[2])));
     let Some(slug) = slug else {
         return ("Drone tetiklenmedi (origin GitHub değil)".into(), None);
     };
@@ -740,7 +746,8 @@ fn drone_trigger(repo: &Path, branch: &str, wait_s: f64) -> (String, Option<(Str
             Ok(v) => (v.get("number").cloned(), "API ile tetiklendi"),
             // 404 "Bad credentials"/401/500: repo sahibinin GitHub token'ı geçersiz; chown ile onarılıp yeniden denenir.
             Err((Some(401 | 404 | 500), _)) => {
-                d.post(&format!("/api/repos/{slug}/chown")).map_err(|e| e.1)?;
+                d.post(&format!("/api/repos/{slug}/chown"))
+                    .map_err(|e| e.1)?;
                 (
                     d.post(&trig).map_err(|e| e.1)?.get("number").cloned(),
                     "repo sahipliği (chown) onarılıp API ile tetiklendi",
@@ -760,7 +767,10 @@ fn drone_trigger(repo: &Path, branch: &str, wait_s: f64) -> (String, Option<(Str
     };
     match run() {
         Ok(r) => r,
-        Err(e) => (format!("Drone tetiklenemedi: {}", first_chars(&e, 120)), None),
+        Err(e) => (
+            format!("Drone tetiklenemedi: {}", first_chars(&e, 120)),
+            None,
+        ),
     }
 }
 
@@ -804,14 +814,23 @@ fn drone_await(slug: &str, number: &Value, timeout_s: f64) -> Result<String, Str
         .into_iter()
         .flatten()
     {
-        for sp in st.get("steps").and_then(Value::as_array).into_iter().flatten() {
+        for sp in st
+            .get("steps")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             let sst = sp.get("status").and_then(Value::as_str).unwrap_or("");
             if ["failure", "error", "killed"].contains(&sst) {
                 let name = sp.get("name").map(py_str).unwrap_or_else(|| "None".into());
                 let path = format!(
                     "/api/repos/{slug}/builds/{num}/logs/{}/{}",
-                    st.get("number").map(py_str).unwrap_or_else(|| "None".into()),
-                    sp.get("number").map(py_str).unwrap_or_else(|| "None".into())
+                    st.get("number")
+                        .map(py_str)
+                        .unwrap_or_else(|| "None".into()),
+                    sp.get("number")
+                        .map(py_str)
+                        .unwrap_or_else(|| "None".into())
                 );
                 detail = match d.get(&path, 60) {
                     Ok(lines) => {
@@ -843,7 +862,13 @@ fn drone_await(slug: &str, number: &Value, timeout_s: f64) -> Result<String, Str
 fn locked_push(step: &Step, root: &Path, dry: bool, allow_push: bool) -> Result<String, String> {
     let mut s = Step::new();
     s.insert("repo".into(), step.get("repo").cloned().ok_or("'repo'")?);
-    for k in ["branch", "drone", "drone_wait", "drone_result", "drone_timeout"] {
+    for k in [
+        "branch",
+        "drone",
+        "drone_wait",
+        "drone_result",
+        "drone_timeout",
+    ] {
         if let Some(v) = step.get(k) {
             s.insert(k.into(), v.clone());
         }
@@ -886,7 +911,9 @@ fn runtime(root: &Path, dry: bool, allow_push: bool, runner: Box<dyn AgentRunner
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| "evren".into())],
         runner,
-        push_hook: Some(Box::new(move |s: &Step| locked_push(s, &root, dry, allow_push))),
+        push_hook: Some(Box::new(move |s: &Step| {
+            locked_push(s, &root, dry, allow_push)
+        })),
         slots_dir: dirs::home_dir()
             .unwrap_or_default()
             .join(".evren")
@@ -951,7 +978,10 @@ fn run_plan_with(
             .get("op")
             .map(py_str)
             .unwrap_or_else(|| "None".into());
-        let mut step = expand(raw_step, &ctx).as_object().cloned().unwrap_or_default();
+        let mut step = expand(raw_step, &ctx)
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
         step.insert("_label".into(), Value::String(format!("{stem}-{i}")));
         let res = if op == "parallel" {
             agent::op_parallel(&step, dry, &ops, &ctx, &rt.slots_dir)

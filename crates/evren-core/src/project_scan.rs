@@ -23,8 +23,8 @@ pub const IGNORED_DIRS: &[&str] = &[
 
 pub const CODE_EXTENSIONS: &[&str] = &[
     ".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".scss", ".json", ".md", ".txt", ".toml",
-    ".yaml", ".yml", ".cs", ".cpp", ".c", ".h", ".hpp", ".go", ".rs", ".sql", ".sh", ".ps1", ".bat",
-    ".xml", ".ini", ".cfg",
+    ".yaml", ".yml", ".cs", ".cpp", ".c", ".h", ".hpp", ".go", ".rs", ".sql", ".sh", ".ps1",
+    ".bat", ".xml", ".ini", ".cfg",
 ];
 
 #[derive(Debug, Clone, Default)]
@@ -94,7 +94,11 @@ pub fn scan_workspace(root: &Path, max_files: usize, max_file_size_kb: f64) -> S
                 .map(|p| p.to_string_lossy().replace('\\', "/"))
                 .unwrap_or_default();
             files.push(rel);
-            let key = if ext.is_empty() { "no_ext".to_string() } else { ext };
+            let key = if ext.is_empty() {
+                "no_ext".to_string()
+            } else {
+                ext
+            };
             *counts.entry(key).or_insert(0) += 1;
             total += size_kb;
             if files.len() >= max_files {
@@ -153,7 +157,13 @@ fn recurse(dir: &Path, prefix: &str, depth: usize, max_depth: usize, lines: &mut
             lines.push(format!("{prefix}{connector}📄 {name}"));
         } else {
             lines.push(format!("{prefix}{connector}📁 {name}/"));
-            recurse(&path, &format!("{prefix}{child}"), depth + 1, max_depth, lines);
+            recurse(
+                &path,
+                &format!("{prefix}{child}"),
+                depth + 1,
+                max_depth,
+                lines,
+            );
         }
     }
 }

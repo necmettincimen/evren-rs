@@ -35,8 +35,10 @@ fn patch_path_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     #[allow(clippy::unwrap_used)]
     RE.get_or_init(|| {
-        Regex::new(r"(?m)^(\*\*\* (?:Add|Update|Delete) File:\s*|\*\*\* Move to:\s*)(\S[^\r\n]*?)\s*$")
-            .unwrap()
+        Regex::new(
+            r"(?m)^(\*\*\* (?:Add|Update|Delete) File:\s*|\*\*\* Move to:\s*)(\S[^\r\n]*?)\s*$",
+        )
+        .unwrap()
     })
 }
 
@@ -112,7 +114,10 @@ pub fn roots() -> Vec<(String, PathBuf)> {
 }
 
 fn lookup(roots: &[(String, PathBuf)], name: &str) -> Option<PathBuf> {
-    roots.iter().find(|(n, _)| n == name).map(|(_, p)| p.clone())
+    roots
+        .iter()
+        .find(|(n, _)| n == name)
+        .map(|(_, p)| p.clone())
 }
 
 /// `api:src/x.py` → `("api", "src/x.py")` ('api' kayıtlıysa).
@@ -333,8 +338,7 @@ mod tests {
         assert!(parse_root_spec("x").is_err());
         assert!(parse_root_spec("a=.").is_err());
         assert!(parse_root_spec("api=/yok/yok/yok").is_err());
-        let (n, p) = parse_root_spec(&format!("api={}", dir.path().display()))
-            .unwrap();
+        let (n, p) = parse_root_spec(&format!("api={}", dir.path().display())).unwrap();
         assert_eq!(n, "api");
         assert!(p.is_dir());
     }
@@ -350,10 +354,18 @@ mod tests {
         assert!(err.is_empty());
         assert_eq!(args["path"], "src/a.py");
         assert_eq!(root, Some(resolve_path(dir.path())));
-        let (args, root, _) = route_in(&roots, "run_command", json!({"command": "x", "root": "main"}));
+        let (args, root, _) = route_in(
+            &roots,
+            "run_command",
+            json!({"command": "x", "root": "main"}),
+        );
         assert!(root.is_none());
         assert!(args.get("root").is_none());
-        let (_, _, err) = route_in(&roots, "run_command", json!({"command": "x", "root": "web"}));
+        let (_, _, err) = route_in(
+            &roots,
+            "run_command",
+            json!({"command": "x", "root": "web"}),
+        );
         assert!(err.contains("tanımlı: main, api"));
         let (args, root, _) = route_in(
             &roots,
@@ -361,7 +373,10 @@ mod tests {
             json!({"patch": "*** Begin Patch\n*** Update File: api:src/a.py\n@@\n*** End Patch"}),
         );
         assert!(root.is_some());
-        assert!(args["patch"].as_str().unwrap_or("").contains("File: src/a.py"));
+        assert!(args["patch"]
+            .as_str()
+            .unwrap_or("")
+            .contains("File: src/a.py"));
         // Sürücü harfi kök sayılmaz.
         assert!(split_prefix_in(&roots, "C:/x").is_none());
     }

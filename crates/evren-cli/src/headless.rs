@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 use evren_agent::mentions::expand_mentions;
 use evren_agent::roles::load_profile;
-use evren_agent::trace::classify_outcome;
 use evren_agent::sessions::{dumps_py, list_sessions};
+use evren_agent::trace::classify_outcome;
 use evren_agent::{AgentEvent, AgentSession};
 use evren_api::ApiClient;
 use evren_core::config::Config;

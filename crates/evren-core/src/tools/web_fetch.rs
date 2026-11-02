@@ -27,8 +27,27 @@ const DROP_TAGS: &[&str] = &[
 
 /// Metin bloğunu bitiren (satır sonu olan) blok etiketleri.
 const BLOCK_TAGS: &[&str] = &[
-    "p", "div", "section", "article", "main", "aside", "ul", "ol", "table", "tr", "blockquote",
-    "pre", "figure", "figcaption", "form", "fieldset", "dl", "dt", "dd", "address", "hr",
+    "p",
+    "div",
+    "section",
+    "article",
+    "main",
+    "aside",
+    "ul",
+    "ol",
+    "table",
+    "tr",
+    "blockquote",
+    "pre",
+    "figure",
+    "figcaption",
+    "form",
+    "fieldset",
+    "dl",
+    "dt",
+    "dd",
+    "address",
+    "hr",
 ];
 
 /// Metin olarak çözülünce bağlamı bozuk karakterle dolduran ikili türler.
@@ -408,7 +427,10 @@ mod tests {
     fn rejects_non_http_scheme() {
         let r = fetch("ftp://example.com/file");
         assert!(r.starts_with("HATA") && r.contains("http"), "{r}");
-        assert_eq!(validate_url("  "), Some("HATA: web_fetch için boş URL.".into()));
+        assert_eq!(
+            validate_url("  "),
+            Some("HATA: web_fetch için boş URL.".into())
+        );
         assert!(validate_url("HTTPS://x").is_none());
     }
 
@@ -416,10 +438,16 @@ mod tests {
     fn html_conversion() {
         let out = html_to_text(HTML);
         assert!(out.contains("# Başlık"), "{out}");
-        assert!(!out.contains("alert") && !out.contains("color:red"), "{out}");
+        assert!(
+            !out.contains("alert") && !out.contains("color:red"),
+            "{out}"
+        );
         assert!(!out.contains("Menu"), "{out}");
         assert!(out.contains("Merhaba dünya."), "{out}");
-        assert!(out.contains("- öğe bir") && out.contains("- öğe iki"), "{out}");
+        assert!(
+            out.contains("- öğe bir") && out.contains("- öğe iki"),
+            "{out}"
+        );
         assert!(out.contains("bağlantı (https://example.com/a)"), "{out}");
         assert!(out.contains("blok sonu"), "{out}");
         assert!(!out.contains('<'), "{out}");
@@ -441,12 +469,19 @@ mod tests {
         assert_eq!(truncate("abc", 10), "abc");
         assert_eq!(truncate("abc", 0), "abc");
         let t = truncate("çççççç", 2);
-        assert!(t.starts_with("çç\n") && t.contains("[4 karakter kırpıldı]"), "{t}");
+        assert!(
+            t.starts_with("çç\n") && t.contains("[4 karakter kırpıldı]"),
+            "{t}"
+        );
     }
 
     #[test]
     fn fetch_html_converts() {
-        let url = serve_once("200 OK", "text/html; charset=utf-8", HTML.as_bytes().to_vec());
+        let url = serve_once(
+            "200 OK",
+            "text/html; charset=utf-8",
+            HTML.as_bytes().to_vec(),
+        );
         let out = fetch(&url);
         assert!(out.contains("# Başlık"), "{out}");
         assert!(!out.contains("alert"), "{out}");

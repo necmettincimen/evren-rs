@@ -733,7 +733,11 @@ impl RepeatGuard {
         let raw = std::env::var("EVREN_REPEAT_LIMITS")
             .unwrap_or_default()
             .replace(' ', "");
-        let raw = if raw.is_empty() { "5,8".to_string() } else { raw };
+        let raw = if raw.is_empty() {
+            "5,8".to_string()
+        } else {
+            raw
+        };
         let parsed = raw
             .split_once(',')
             .and_then(|(a, b)| Some((a.parse::<u32>().ok()?, b.parse::<u32>().ok()?)));

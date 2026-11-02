@@ -672,7 +672,13 @@ async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
                 Some(t) => get_workspace_dir(Some(&t)),
                 None => workspace.clone(),
             };
-            Ok(evren_tui::docs::cli_command(&config, &root, &docs_action, adopt, yes))
+            Ok(evren_tui::docs::cli_command(
+                &config,
+                &root,
+                &docs_action,
+                adopt,
+                yes,
+            ))
         }
         Some(Command::Plan {
             plan_file,

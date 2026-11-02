@@ -174,11 +174,14 @@ impl AgentSession {
         let mut prompt = cleaned.clone();
         if !self.active_context_files.is_empty() {
             let files: Vec<&String> = self.active_context_files.iter().collect();
-            let ctx = evren_core::project_scan::build_context_from_files(&files, &self.workspace_root);
-            prompt = format!("{cleaned}
+            let ctx =
+                evren_core::project_scan::build_context_from_files(&files, &self.workspace_root);
+            prompt = format!(
+                "{cleaned}
 
 [Aktif Dosya Bağlamı]:
-{ctx}");
+{ctx}"
+            );
         }
         for block in [domain_hints(&cleaned), self.vault_lock().usage_note()] {
             if block.is_empty() || sent_before.contains(&block) {
@@ -316,7 +319,11 @@ impl AgentSession {
         let vault = self.vault_lock().clone();
         let mut writer = TaskTrace::new(&self.workspace_root, self.config.trace_enabled())
             .with_masker(Arc::new(move |t: &str| vault.mask(t)));
-        let role = self.role.as_ref().map(|r| r.name.clone()).unwrap_or_default();
+        let role = self
+            .role
+            .as_ref()
+            .map(|r| r.name.clone())
+            .unwrap_or_default();
         writer.start(&self.model, mode.as_str(), text, &role, &self.task_ref);
         self.trace_writer = Some(writer);
     }
@@ -1245,7 +1252,11 @@ impl AgentSession {
             return args;
         }
         if let Some(Value::String(v)) = args.get_mut(key) {
-            *v = if expand { vault.expand(v) } else { vault.mask(v) };
+            *v = if expand {
+                vault.expand(v)
+            } else {
+                vault.mask(v)
+            };
         }
         args
     }

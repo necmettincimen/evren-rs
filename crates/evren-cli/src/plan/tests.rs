@@ -34,7 +34,12 @@ fn glob_sorted_recursive() {
     std::fs::write(r.join("a/x.txt"), "").unwrap();
     let got: Vec<String> = glob_sorted(&r, "**/*.cs")
         .iter()
-        .map(|p| p.strip_prefix(&r).unwrap().to_string_lossy().replace('\\', "/"))
+        .map(|p| {
+            p.strip_prefix(&r)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
         .collect();
     assert_eq!(got, vec!["a/b/z.cs", "a/y.cs"]);
 }
@@ -50,8 +55,16 @@ fn replace_regex_literal_and_required() {
     )
     .unwrap();
     assert_eq!(out, "1 dosya tarandı, 1 değişti");
-    assert_eq!(std::fs::read_to_string(r.join("f.txt")).unwrap(), "ad = 9\nsoyad = 2\n");
-    op_replace(&step(json!({"glob": "*.txt", "find": "a$d", "with": "$x"})), &r, false).unwrap_err();
+    assert_eq!(
+        std::fs::read_to_string(r.join("f.txt")).unwrap(),
+        "ad = 9\nsoyad = 2\n"
+    );
+    op_replace(
+        &step(json!({"glob": "*.txt", "find": "a$d", "with": "$x"})),
+        &r,
+        false,
+    )
+    .unwrap_err();
     std::fs::write(r.join("g.txt"), "a.b\n").unwrap();
     let out = op_replace(
         &step(json!({"glob": "g.txt", "find": "a.b", "with": "\\1$"})),
@@ -61,9 +74,16 @@ fn replace_regex_literal_and_required() {
     .unwrap();
     assert_eq!(out, "1 dosya tarandı, 1 değişti");
     assert_eq!(std::fs::read_to_string(r.join("g.txt")).unwrap(), "\\1$\n");
-    let err = op_replace(&step(json!({"glob": "*.txt", "find": "yok", "with": "x"})), &r, false)
-        .unwrap_err();
-    assert!(err.starts_with("replace hicbir dosyada eslesmedi (2 dosya tarandi)"), "{err}");
+    let err = op_replace(
+        &step(json!({"glob": "*.txt", "find": "yok", "with": "x"})),
+        &r,
+        false,
+    )
+    .unwrap_err();
+    assert!(
+        err.starts_with("replace hicbir dosyada eslesmedi (2 dosya tarandi)"),
+        "{err}"
+    );
     let ok = op_replace(
         &step(json!({"glob": "*.txt", "find": "yok", "with": "x", "required": false})),
         &r,
@@ -76,10 +96,23 @@ fn replace_regex_literal_and_required() {
 #[test]
 fn write_and_outside_root() {
     let (_t, r) = root();
-    let out = op_write(&step(json!({"path": "d/e.txt", "content": "merhaba"})), &r, false).unwrap();
+    let out = op_write(
+        &step(json!({"path": "d/e.txt", "content": "merhaba"})),
+        &r,
+        false,
+    )
+    .unwrap();
     assert!(out.starts_with("yazıldı: "));
-    assert_eq!(std::fs::read_to_string(r.join("d/e.txt")).unwrap(), "merhaba");
-    let err = op_write(&step(json!({"path": "../dis.txt", "content": "x"})), &r, false).unwrap_err();
+    assert_eq!(
+        std::fs::read_to_string(r.join("d/e.txt")).unwrap(),
+        "merhaba"
+    );
+    let err = op_write(
+        &step(json!({"path": "../dis.txt", "content": "x"})),
+        &r,
+        false,
+    )
+    .unwrap_err();
     assert_eq!(err, "çalışma alanı dışı yol: ../dis.txt");
     assert_eq!(
         op_write(&step(json!({"content": "x"})), &r, false).unwrap_err(),
@@ -109,7 +142,10 @@ fn commit_rejects_ai_signature() {
         true,
     )
     .unwrap_err();
-    assert_eq!(err, "commit mesajında AI imzası/attribution yasak (proje kuralı)");
+    assert_eq!(
+        err,
+        "commit mesajında AI imzası/attribution yasak (proje kuralı)"
+    );
     assert_eq!(
         op_commit(&step(json!({"repo": ".", "message": "düzelt"})), &r, true).unwrap(),
         "commit: düzelt"
@@ -144,5 +180,8 @@ fn plan_dry_run_and_errors() {
     std::fs::write(&plan, r#"{"steps": [{"op": "uç"}]}"#).unwrap();
     assert_eq!(run_plan_with(&p, &r, false, false, 1, &rt(&r)).unwrap(), 1);
     std::fs::write(&plan, r#"{"adimlar": []}"#).unwrap();
-    assert_eq!(run_plan_with(&p, &r, false, false, 1, &rt(&r)).unwrap_err(), "'steps'");
+    assert_eq!(
+        run_plan_with(&p, &r, false, false, 1, &rt(&r)).unwrap_err(),
+        "'steps'"
+    );
 }

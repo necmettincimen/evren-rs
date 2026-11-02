@@ -844,9 +844,19 @@ fn memory_save_appends_project_note() {
     let ctx = ctx_for(ws.path());
     let empty = execute_tool_call(&ctx, "memory_save", json!({"text": "  "}), false);
     assert_eq!(empty, "HATA: memory_save için 'text' gerekli.");
-    let res = execute_tool_call(&ctx, "memory_save", json!({"text": "testler cargo ile"}), false);
+    let res = execute_tool_call(
+        &ctx,
+        "memory_save",
+        json!({"text": "testler cargo ile"}),
+        false,
+    );
     assert_eq!(res, "BAŞARILI: not hafızaya kaydedildi.");
-    let again = execute_tool_call(&ctx, "memory_save", json!({"text": "testler cargo ile"}), false);
+    let again = execute_tool_call(
+        &ctx,
+        "memory_save",
+        json!({"text": "testler cargo ile"}),
+        false,
+    );
     assert!(again.starts_with("BAŞARILI"), "{again}");
     let state = crate::memory::load_memory(ws.path(), crate::memory::Scope::Project);
     let notes = crate::memory::notes(&state);
