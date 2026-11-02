@@ -36,12 +36,12 @@ powershell -ExecutionPolicy Bypass -File scripts/install.ps1
 Betik şunları yapar:
 
 1. `cargo build --release` (atlamak için `-NoBuild`).
-2. `target\releasese\evren.exe` dosyasını `%LOCALAPPDATA%\\evren\bin\evren.exe` konumuna, varsa
+2. `target\release\evren.exe` dosyasını `%LOCALAPPDATA%\evren\bin\evren.exe` konumuna, varsa
    `%USERPROFILE%\.evren-cli\bin\evren.exe` konumuna da kopyalar (eski Python başlatıcısı
    sistem `PATH`'inde önde durduğu için değiştirilir).
 3. Yerine konan her Python başlatıcısını önce `evren.exe.bak-<tarih>` olarak yedekler.
-4. Python sürümü kuruluysa `evren-py` adıyla bırakır (`%LOCALAPPDATA%\\evren\bin\evren-py.cmd`).
-5. `%LOCALAPPDATA%\\evren\bin` kullanıcı `PATH`'inde yoksa başa ekler (yeni terminal gerekir).
+4. Python sürümü kuruluysa `evren-py` adıyla bırakır (`%LOCALAPPDATA%\evren\bin\evren-py.cmd`).
+5. `%LOCALAPPDATA%\evren\bin` kullanıcı `PATH`'inde yoksa başa ekler (yeni terminal gerekir).
 
 Sürüm yükseltme: `git pull` ardından aynı betik; önceki Rust kurulumunun üzerine yazar.
 
