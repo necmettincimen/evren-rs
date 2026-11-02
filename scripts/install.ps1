@@ -31,10 +31,25 @@ function Test-PyLauncher([string]$path) {
 }
 
 if (-not $NoBuild) {
-    foreach ($tool in 'cargo', 'dlltool') {
-        if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
-            throw "$tool bulunamadı. Kurulum: winget install --id Rustlang.Rustup -e ; winget install --id BrechtSanders.WinLibs.POSIX.UCRT -e ; rustup default stable-x86_64-pc-windows-gnu ; sonra yeni terminal açın."
+    if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
+        $cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
+        if (Test-Path (Join-Path $cargoBin 'cargo.exe')) { $env:Path = "$cargoBin;$env:Path" }
+        else { throw "cargo bulunamadı. Kurulum: winget install --id Rustlang.Rustup -e ; rustup default stable-x86_64-pc-windows-gnu ; sonra yeni terminal açın." }
+    }
+    # GNU hedefi windows-sys için MinGW dlltool ister (rustup'ın self-contained kopyası yetmez,
+    # yanında as.exe yok). PATH'te yoksa winget WinLibs kurulumu (kullanıcı ya da makine kapsamı)
+    # aranır ve bu süreç için PATH'e eklenir; böylece yeni terminal açmak gerekmez.
+    if (-not (Get-Command dlltool -ErrorAction SilentlyContinue)) {
+        $candidates = @(
+            (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages\BrechtSanders.WinLibs*\mingw64\bin\dlltool.exe'),
+            (Join-Path $env:ProgramFiles 'WinGet\Packages\BrechtSanders.WinLibs*\mingw64\bin\dlltool.exe')
+        )
+        $found = $candidates | ForEach-Object { Get-Item $_ -ErrorAction SilentlyContinue } | Select-Object -First 1
+        if (-not $found) {
+            throw "dlltool bulunamadı. Kurulum: winget install --id BrechtSanders.WinLibs.POSIX.UCRT -e ; sonra yeni terminal açın."
         }
+        $env:Path = "$($found.DirectoryName);$env:Path"
+        Write-Host "[*] dlltool: $($found.FullName)"
     }
     Write-Host '[*] cargo build --release'
     Push-Location $repo
