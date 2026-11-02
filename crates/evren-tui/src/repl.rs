@@ -17,7 +17,6 @@ use evren_api::{ensure_terms_accepted, mask_key, ApiClient, TermsOptions, TermsU
 use evren_core::config::Config;
 use evren_core::error::EvrenError;
 use evren_core::models::RECOMMENDED_MODELS;
-use evren_core::texts;
 use evren_core::tools::file_ops::{resolve_workspace_path, rollback_last_backup};
 use evren_core::tools::Mode;
 use serde_json::Value;
@@ -102,9 +101,6 @@ const PHASE4_COMMANDS: &[&str] = &[
     "/update",
 ];
 
-/// Faz 3'ün sonraki adımlarında taşınacak çekirdek komutlar.
-const PENDING_COMMANDS: &[&str] = &["/docs"];
-
 pub fn phase4_message(cmd: &str) -> String {
     format!("{cmd} komutu Faz 4'te gelecek; bu sürümde henüz yok.")
 }
@@ -160,6 +156,26 @@ fn quota_text(data: &serde_json::Map<String, Value>, masked: Option<String>) -> 
     text
 }
 
+/// En yeni `plans/*/plan.md` ve değişiklik zamanı.
+fn latest_plan(workspace: &Path) -> Option<(PathBuf, std::time::SystemTime)> {
+    std::fs::read_dir(workspace.join("plans"))
+        .ok()?
+        .flatten()
+        .map(|e| e.path().join("plan.md"))
+        .filter_map(|p| {
+            let mtime = std::fs::metadata(&p).ok()?.modified().ok()?;
+            Some((p, mtime))
+        })
+        .max_by_key(|(_, m)| *m)
+}
+
+fn plan_step_re() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"^\s*(\d{1,2}[.)]|[-*])\s+\S").unwrap_or_else(|_| unreachable!())
+    })
+}
+
 /// Turda çalışacak iş.
 enum Turn {
     Step(String),
@@ -187,6 +203,8 @@ struct Repl {
     custom: BTreeMap<String, extras::CustomCommand>,
     /// Son gönderilen kalıp; form alanlarında varsayılan olur.
     last_frame: Option<PromptFrame>,
+    /// Uygulama sorusu sorulmuş son `plans/*/plan.md` zaman damgası.
+    plan_seen: Option<std::time::SystemTime>,
 }
 
 /// Argümansız `evren`: etkileşimli REPL'i açar.
@@ -197,11 +215,7 @@ pub async fn run(
 ) -> Result<ExitCode, EvrenError> {
     let evren_dir = workspace.join(".evren");
     let _ = std::fs::create_dir_all(&evren_dir);
-    if config.flag("EVREN_AUTO_DOCS", true) {
-        print_info("Bağlam: atlandı (agent.md/changelog.md önyüklemesi Rust sürümünde henüz yok)");
-    } else {
-        print_info("Bağlam: kapalı (EVREN_AUTO_DOCS=false)");
-    }
+    crate::docs::bootstrap(config, workspace);
 
     let client = Arc::new(ApiClient::new(config)?);
     // Havuzda birden çok anahtar varsa kotası en yüksek olan sabitlenir;
@@ -298,6 +312,7 @@ pub async fn run(
         interrupted: false,
         custom: extras::refresh_custom_commands(workspace),
         last_frame: None,
+        plan_seen: None,
     };
     repl.run_loop().await;
     repl.shutdown();
@@ -467,7 +482,13 @@ impl Repl {
         };
         let client = session.client().clone();
         let model = session.model().to_string();
-        let context = format!("Çalışma dizini: {}", self.workspace.display());
+        // Netleştirme çağrısı ayrı bir API isteğidir: yalnız dizin + kısa özet.
+        let mut context = format!("Çalışma dizini: {}", self.workspace.display());
+        let digest = evren_core::project_docs::docs_digest(&self.workspace, 1200);
+        if !digest.is_empty() {
+            context.push_str("\nPROJE ÖZETİ (kısa; canlı ortam önceliklidir):\n");
+            context.push_str(&digest);
+        }
         let reader = &mut self.reader;
         let mut read = |label: &str| read_form_line(reader.as_mut(), label);
         let mut guide = |frame: &PromptFrame, clarify: bool| {
@@ -490,8 +511,65 @@ impl Repl {
         prepare_frame(&mut io, brief, self.last_frame.as_ref(), opts)
     }
 
-    /// Ajan turunu çalıştırır; olayları basar, ESC/Ctrl+C turu iptal eder.
+    /// Turu çalıştırır; plan kipinde yeni plan yazıldıysa uygulamayı önerir.
     async fn run_turn(&mut self, turn: Turn) {
+        let mut next = Some(turn);
+        while let Some(turn) = next.take() {
+            self.run_turn_once(turn).await;
+            next = self.offer_plan_execution();
+        }
+    }
+
+    /// Plan kipi akışı: plan yazıldıktan sonra aynı oturumda uygulamayı önerir.
+    fn offer_plan_execution(&mut self) -> Option<Turn> {
+        let session = self.session.as_mut()?;
+        if session.mode() != Mode::Plan || session.interrupted() {
+            return None;
+        }
+        let (path, mtime) = latest_plan(&self.workspace)?;
+        let fresh = std::time::SystemTime::now()
+            .duration_since(mtime)
+            .map(|age| age.as_secs() <= 600)
+            .unwrap_or(true);
+        if !fresh || self.plan_seen == Some(mtime) {
+            return None;
+        }
+        self.plan_seen = Some(mtime);
+        print!("\nPlanı uygula? [e/H]: ");
+        ui::flush();
+        let mut line = String::new();
+        match std::io::BufRead::read_line(&mut std::io::stdin().lock(), &mut line) {
+            Ok(0) | Err(_) => return None,
+            Ok(_) => {}
+        }
+        if !matches!(line.trim().to_lowercase().as_str(), "e" | "evet" | "y" | "yes") {
+            return None;
+        }
+        session.set_mode(Mode::Normal);
+        print_info("Normal moda geçildi.");
+        let rel = path
+            .strip_prefix(&self.workspace)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let plan_text = std::fs::read_to_string(&path).unwrap_or_default();
+        let steps = plan_text.lines().filter(|l| plan_step_re().is_match(l)).count();
+        // İki adımlı bir plan dört todo_write ve tam test koşusuyla uygulanmıştı.
+        let how = if steps > 3 {
+            session.load_plan_todos(&plan_text);
+            "Adımlar görev listesine yüklendi; maddeleri bitirdikçe toplu işaretle."
+        } else {
+            "Plan kısa: todo_write kullanma, doğrudan uygula."
+        };
+        let head: String = plan_text.chars().take(6000).collect();
+        Some(Turn::Step(format!(
+            "{rel} planını uygula (içerik aşağıda; dosyayı yeniden okuma). {how} \
+             Doğrulamada yalnız ilgili testleri çalıştır.\n\n{head}"
+        )))
+    }
+
+    /// Ajan turunu çalıştırır; olayları basar, ESC/Ctrl+C turu iptal eder.
+    async fn run_turn_once(&mut self, turn: Turn) {
         let Some(mut session) = self.session.take() else {
             return;
         };
@@ -693,9 +771,9 @@ v{ver} Sürüm Notları:"
             "/drop" => extras::drop(session, &arg),
             "/resume" if arg.to_lowercase() != "playbook" => extras::resume(session),
             "/resume" => print_warning(&phase4_message("/resume playbook")),
+            "/docs" => crate::docs::repl_command(session, &arg),
             "/run" => self.run_command(&arg).await,
             c if PHASE4_COMMANDS.contains(&c) => print_warning(&phase4_message(c)),
-            c if PENDING_COMMANDS.contains(&c) => print_warning(texts::NOT_PORTED_YET),
             _ => print_warning(&unknown_command_message(&typed)),
         }
         Flow::Continue
@@ -849,9 +927,10 @@ mod tests {
                     | "/drop"
                     | "/resume"
                     | "/run"
+                    | "/docs"
             );
             assert!(
-                handled || PHASE4_COMMANDS.contains(cmd) || PENDING_COMMANDS.contains(cmd),
+                handled || PHASE4_COMMANDS.contains(cmd),
                 "{cmd}"
             );
         }

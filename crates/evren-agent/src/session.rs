@@ -348,6 +348,11 @@ impl AgentSession {
         &self.todos
     }
 
+    /// Planın numaralı adımlarını görev listesine yükler (`_plan_to_todos`).
+    pub fn load_plan_todos(&mut self, plan: &str) {
+        crate::route::plan_to_todos(plan, &mut self.todos);
+    }
+
     /// Paylaşımlı gizli kasa (maskeleme için).
     pub fn vault(&self) -> Arc<Mutex<SecretVault>> {
         self.vault.clone()

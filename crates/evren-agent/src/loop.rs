@@ -155,6 +155,8 @@ impl AgentSession {
         self.tool_trace.clear();
         self.task_start = Some(Instant::now());
         self.task_usage_base = self.usage_totals.total_tokens;
+        // Salt-okuma kipleri belge sözleşmesini korur: okur, yazmaz.
+        self.sync_docs(&cleaned, "çalışıyor", mode != Mode::Normal);
         let sent_before: String = self
             .messages
             .iter()
@@ -262,8 +264,30 @@ impl AgentSession {
         INTERRUPT_OUTCOME.to_string()
     }
 
-    /// Görev sonucu; değişiklik günlüğü/doküman eşitleme bu sürümde yok.
-    fn finish_task(&mut self, result_text: String, _mode: Mode) -> String {
+    /// agent.md/changelog.md'yi görev çevresinde yeniler; hata yükseltmez.
+    fn sync_docs(&self, goal: &str, status: &str, read_only: bool) {
+        let opts = evren_core::project_docs::DocsOptions {
+            goal: goal.to_string(),
+            status: status.to_string(),
+            read_only,
+            ..Default::default()
+        };
+        evren_core::project_docs::ensure_project_docs(&self.workspace_root, &self.config, &opts);
+    }
+
+    /// Görev sonucunu proje belgelerine işler, sonra sonucu döndürür.
+    fn finish_task(&mut self, result_text: String, mode: Mode) -> String {
+        if mode == Mode::Normal && !self.interrupted {
+            let failed = result_text.starts_with("HATA:");
+            let entry = self.changelog_entry(&result_text);
+            evren_core::project_docs::append_changelog_entry(
+                &self.workspace_root,
+                &self.config,
+                &entry,
+            );
+            let goal = self.task_goal.clone();
+            self.sync_docs(&goal, if failed { "blokaj" } else { "tamam" }, false);
+        }
         result_text
     }
 

@@ -22,13 +22,15 @@ Hedef: 4.0.0 üzerine Python sürümüyle parite; sürüm 4.1.0. Ayrıntılı 4.
      `/ask` yolu düzeltmesi; `evren agent` tek seferlik görev (`evren-tui` `oneshot`).
    - Testler: `test_prompt_frame.py`, `PromptFrameRoutingTest`, palet kontrastı taşındı.
 
+3. `agent.md`/changelog yönetilen blokları (`evren-core` `project_docs`, `docs_merge`):
+   - `<!-- evren:managed:start section=... -->` işaretleri, `.evren/docs_state.json`, `EVREN_DOCS_*`
+     ve `EVREN_AUTO_DOCS` anahtarları; ajan turunda belge eşitleme ve changelog girişi.
+   - `evren docs [status|refresh|unmark|path]`, REPL `/docs`; açılışta "Bağlam: ..." özeti.
+   - Plan kipi sonrası "Planı uygula? [e/H]"; netleştirme bağlamına proje özeti.
+   - Testler: `test_project_docs.py` (13 test) taşındı.
+
 ## Kalanlar (sırayla)
 
-3. `agent.md`/changelog yönetilen blokları (`src/project_docs.py`):
-   - İşaretler `<!-- evren:managed:start section=... -->` ve `docs_state.json`.
-   - `evren docs refresh`, `/docs unmark`.
-   - REPL açılış önyüklemesi: `repl.rs` içindeki "Bağlam: atlandı" satırı kalkar.
-   - `EVREN_DOCS_*` ve plan kipi "Planı uygula? [e/H]".
 4. Faz 4:
    - memory aracı (`memory_save`), `web_fetch`.
    - `plan_runner`/`plan_agent` (`evren plan`, `.evren/logs` biçimi).
@@ -44,8 +46,10 @@ Hedef: 4.0.0 üzerine Python sürümüyle parite; sürüm 4.1.0. Ayrıntılı 4.
 - Python `/doctor` Python sürüm satırı yerine çalıştırılabilir yolunu basar.
 - `/resume playbook` Faz 4'e kadar Faz 4 mesajı verir.
 - REPL'de `EVREN_FORM_FIELDS` kapalıyken boş Brief hiçbir şey yapmaz (Python son kalıbı yeniden
-  çalıştırır). Netleştirme bağlamına docs özeti 3. maddede eklenecek.
-- `evren agent` docs önyüklemesi (`ensure_project_docs`) 3. maddeye kaldı.
+  çalıştırır).
+- `agent.md` çalışma zamanı satırı Rust sürümünü yazar; proje haritası Cargo.toml ipuçlarını da
+  tanır. `cli_home` belgeleri (`ensure_cli_docs`) ve `current_focus` açık blokajları Faz 4 takip
+  modülüyle gelecek.
 - `cargo test -- --ignored` (Python oracle) 3.12.0+ ister; `../evren-cli` `master` 3.11.0'da
   olduğundan 5 test düşer. 3.12.2 (`claude/evren-sdlc-faz0-ce3b75`) kopyasıyla
   `EVREN_CLI_ROOT=<kopya>` verilince 18/18 geçer.

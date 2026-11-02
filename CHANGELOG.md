@@ -28,6 +28,8 @@ sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kura
   `/commit`, `/review`, `/init`, `/files`, `/add`, `/drop`, `/scan`, `/run`, `/memory`,
   `/language`, `/resume`, `/keys`, `/debug` ve `.evren/commands/*.md` özel komutları;
   `/clear` checkpoint'i siler.
+- Yapıldı (main): `agent.md`/`changelog.md` yönetilen blokları (`.evren/docs_state.json`),
+  `evren docs` ve `/docs`, plan kipi sonrası "Planı uygula? [e/H]".
 - Yapıldı: prompt çerçevesi. `evren chat` ve `evren agent` `--rol/--cerceve/--brief/--kisit/--cikti`
   bayraklarını alır; bayrak ve istek yoksa uçbirimde beş satır sorulur. REPL'de Brief
   netleştirme ve boş alan önerileri (`EVREN_CLARIFY_ROUNDS`, `EVREN_FRAME_SUGGEST`,

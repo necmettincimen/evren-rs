@@ -2,12 +2,11 @@
 //! planlayıcı/alt görev metinleri (Python `agent.py` üst kısmı ve
 //! `config.py` `execution_context_block`/`git_context_block`).
 
-use std::io::Read;
 use std::path::Path;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use evren_core::config::Config;
+use evren_core::git::git_run;
 use evren_core::tools::file_ops::resolve_path;
 
 /// Python `SYSTEM_PROMPT` (birebir).
@@ -128,45 +127,6 @@ pub fn execution_context_block(workspace_root: &Path, config: &Config) -> String
         root.display(),
         shell_label(config)
     )
-}
-
-/// `git <args>` çıktısı (kırpılmış); git yoksa, hata verirse ya da süre aşılırsa `None`.
-fn git_run(args: &[&str], cwd: &Path, timeout: Duration) -> Option<String> {
-    let mut child = Command::new("git")
-        .args(args)
-        .current_dir(cwd)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let mut stdout = child.stdout.take()?;
-    // Çıktı küçük olduğundan önce okunur, sonra süre sınırı ile beklenir.
-    let reader = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = stdout.read_to_end(&mut buf);
-        buf
-    });
-    let started = Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => {
-                if started.elapsed() > timeout {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return None;
-                }
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            Err(_) => return None,
-        }
-    };
-    if !status.success() {
-        return None;
-    }
-    let out = reader.join().ok()?;
-    Some(String::from_utf8_lossy(&out).trim().to_string())
 }
 
 /// Oturum başında bir kez alınan git özeti; git yoksa boş dize.
@@ -299,8 +259,8 @@ pub fn verification_note(workspace_root: &Path) -> String {
     )
 }
 
-/// Sistem istemi: temel metin + yürütme bağlamı + (varsa) git bloğu.
-/// Proje dokümanı, bellek, rol ve dil blokları bu sürümde yok.
+/// Sistem istemi: temel metin + yürütme bağlamı + git + proje belgeleri
+/// (`agent.md`/`changelog.md`) + bellek + rol + dil blokları.
 pub fn compose_system(
     base: &str,
     workspace_root: &Path,
@@ -314,6 +274,10 @@ pub fn compose_system(
     }
     if !git_block.is_empty() {
         blocks.push(git_block.to_string());
+    }
+    let docs = evren_core::project_docs::docs_context_block(workspace_root, config, None);
+    if !docs.is_empty() {
+        blocks.push(docs);
     }
     let mem = evren_core::memory::memory_context_block(workspace_root, 10);
     if !mem.is_empty() {

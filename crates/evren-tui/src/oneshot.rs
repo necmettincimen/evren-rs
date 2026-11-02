@@ -31,6 +31,8 @@ pub async fn run_agent_once(
     workspace: &Path,
     task: AgentOnce,
 ) -> ExitCode {
+    // Akıllı bağlam belgeleri sistem istemi kurulmadan önce hazır olmalı.
+    crate::docs::bootstrap(config, workspace);
     let (tx, mut rx) = mpsc::unbounded_channel();
     let cancel = CancellationToken::new();
     let mut session = AgentSession::new(client, config.clone(), workspace, tx, cancel.clone());

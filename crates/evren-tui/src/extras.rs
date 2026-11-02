@@ -33,22 +33,30 @@ fn headless() -> bool {
 
 /// `prompt_confirm(msg, default=False)`: y/yes/evet/e onaylar.
 pub fn prompt_confirm(msg: &str) -> bool {
+    prompt_confirm_default(msg, false)
+}
+
+/// `prompt_confirm(msg, default=...)`; boş yanıt varsayılanı seçer.
+pub fn prompt_confirm_default(msg: &str, default_yes: bool) -> bool {
     if headless() {
-        println!("{}", texts::confirm_headless(msg, false));
-        return false;
+        println!("{}", texts::confirm_headless(msg, default_yes));
+        return default_yes;
     }
-    print!("{}", texts::confirm_prompt(msg, false));
+    print!("{}", texts::confirm_prompt(msg, default_yes));
     ui::flush();
     let mut line = String::new();
     match std::io::stdin().lock().read_line(&mut line) {
         Ok(0) | Err(_) => {
-            println!("{}", texts::confirm_no_input(false));
-            false
+            println!("{}", texts::confirm_no_input(default_yes));
+            default_yes
         }
-        Ok(_) => matches!(
-            line.trim().to_lowercase().as_str(),
-            "y" | "yes" | "evet" | "e"
-        ),
+        Ok(_) => {
+            let a = line.trim().to_lowercase();
+            if a.is_empty() {
+                return default_yes;
+            }
+            matches!(a.as_str(), "y" | "yes" | "evet" | "e")
+        }
     }
 }
 

@@ -2,12 +2,16 @@
 //! ayrıntılar `docs/plan.md` içindedir.
 
 pub mod config;
+pub mod docs_merge;
 pub mod docs_state;
 pub mod error;
+pub mod git;
 pub mod language;
 pub mod memory;
 pub mod models;
+pub mod project_docs;
 pub mod project_scan;
+pub mod redact;
 pub mod secret_vault;
 pub mod settings;
 pub mod ssh_hosts;

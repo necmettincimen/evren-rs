@@ -124,8 +124,21 @@ enum Command {
     },
     /// Dosyayı yedekten geri al
     Rollback { file: String },
-    /// Dokümantasyon
-    Docs,
+    /// agent.md / changelog.md bağlam dosyalarını yönet
+    Docs {
+        /// İşlem (varsayılan: status)
+        #[arg(default_value = "status", value_parser = ["status", "refresh", "unmark", "path"])]
+        docs_action: String,
+        /// Hedef proje dizini
+        #[arg(long, short = 'w')]
+        workspace: Option<PathBuf>,
+        /// Yönetilen blokları olmayan bir agent.md dosyasına ekle
+        #[arg(long)]
+        adopt: bool,
+        /// Onay sormadan uygula (yalnızca unmark için)
+        #[arg(long)]
+        yes: bool,
+    },
     /// Hata ayıklama
     Debug,
     /// Yinelemeli geliştirme
@@ -636,6 +649,18 @@ async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
             max_steps,
         }) => cmd_agent(&config, &workspace, cli.model, prompt, &frame, max_steps).await,
         Some(Command::Terms { force }) => cmd_terms(&config, force).await,
+        Some(Command::Docs {
+            docs_action,
+            workspace: target,
+            adopt,
+            yes,
+        }) => {
+            let root = match target {
+                Some(t) => get_workspace_dir(Some(&t)),
+                None => workspace.clone(),
+            };
+            Ok(evren_tui::docs::cli_command(&config, &root, &docs_action, adopt, yes))
+        }
         None => {
             config.require_api_key()?;
             let opts = evren_tui::ReplOptions {
