@@ -9,6 +9,7 @@ pub mod mentions;
 pub mod modes;
 pub mod paste;
 pub mod prompt_frame;
+pub mod roles;
 pub mod route;
 pub mod session;
 pub mod sessions;

@@ -45,11 +45,20 @@ pub fn outcome_label(outcome: &str) -> &'static str {
         "max_steps" => "adım sınırı",
         "interrupted" => "iptal",
         "exception" => "beklenmeyen hata",
+        "stuck" => "takıldı (tekrar)",
+        "budget" => "bütçe aşıldı",
         _ => "",
     }
 }
 
+/// `.evren/logs/trace.jsonl`; `EVREN_TRACE_FILE` doluysa o yol.
 pub fn trace_path(workspace_root: &Path) -> PathBuf {
+    if let Ok(over) = std::env::var("EVREN_TRACE_FILE") {
+        let over = over.trim();
+        if !over.is_empty() {
+            return PathBuf::from(over);
+        }
+    }
     get_evren_dir(workspace_root)
         .join("logs")
         .join(TRACE_FILE_NAME)
@@ -151,6 +160,8 @@ pub fn classify_outcome(result: Option<&str>) -> &'static str {
     match result {
         None => "exception",
         Some(r) if r.starts_with("İPTAL") => "interrupted",
+        Some(r) if r.starts_with("HATA: STUCK") => "stuck",
+        Some(r) if r.starts_with("HATA: BÜTÇE") => "budget",
         Some(r) if r.starts_with("HATA: Ajan maksimum adım") => "max_steps",
         Some(r) if r.starts_with("HATA") || r.starts_with("Hata") => "error",
         Some(_) => "ok",
@@ -253,14 +264,23 @@ impl TaskTrace {
         self.write(&Value::Object(record));
     }
 
-    pub fn start(&mut self, model: &str, mode: &str, text: &str) {
+    /// `role` / `task_ref` boşsa `null`; `task_ref` boşsa `EVREN_TASK_REF` okunur.
+    pub fn start(&mut self, model: &str, mode: &str, text: &str, role: &str, task_ref: &str) {
         self.model = self.clean(model, 64);
+        let task_ref = if task_ref.trim().is_empty() {
+            std::env::var("EVREN_TASK_REF").unwrap_or_default()
+        } else {
+            task_ref.to_string()
+        };
+        let opt = |v: String| if v.is_empty() { Value::Null } else { Value::String(v) };
         self.write(&json!({
             "type": "task_start",
             "task_id": self.task_id,
             "ts": usage_log::stamp(),
             "model": self.model,
             "mode": self.clean(mode, 16),
+            "role": opt(self.clean(role, 32)),
+            "task_ref": opt(self.clean(&task_ref, 64)),
             "text_preview": self.clean(text, PREVIEW_CHARS),
         }));
     }
@@ -372,7 +392,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let masker: Masker = Arc::new(|t: &str| t.replace("GIZLI", "***"));
         let mut tr = TaskTrace::new(dir.path(), true).with_masker(masker);
-        tr.start("m", "normal", "görev GIZLI");
+        tr.start("m", "normal", "görev GIZLI", "", "");
         tr.request(
             Some(&json!({"prompt_tokens": 5, "completion_tokens": 2})),
             12.7,

@@ -5,7 +5,7 @@ Bu projedeki tüm önemli değişiklikler bu dosyada belgelenir.
 Format [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) standardına,
 sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kurallarına dayanır.
 
-## [4.0.0-dev] - 2026-11-02
+## [4.0.0] - 2026-11-02
 
 ### Eklendi
 - EVREN CLI Rust ile yeniden yazıldı: tek `evren` ikilisi, Python gerekmez.

@@ -642,6 +642,15 @@ pub struct RepeatGuard {
     family_runs: HashMap<String, (u32, u32)>,
     probe_runs: HashMap<u32, u32>,
     pub probe_note: String,
+    /// Tekrar kesici: görev boyunca her imzanın sayısı (yazmayla sıfırlanmaz).
+    sig_counts: HashMap<String, u32>,
+    sig_last_out: HashMap<String, u64>,
+    pub role_test_runs: u32,
+    pub stuck_reason: String,
+    pub repeat_blocked_count: u32,
+    /// Rol profilinin (block, stuck) sınırları ve rapor dosyası; görevler arası korunur.
+    role_limits: Option<(u32, u32)>,
+    role_report: String,
 }
 
 /// `fn_name + ":" + json.dumps(args, sort_keys=True)`.
@@ -703,7 +712,102 @@ impl RepeatGuard {
     }
 
     pub fn reset(&mut self) {
+        let limits = self.role_limits;
+        let report = std::mem::take(&mut self.role_report);
         *self = Self::default();
+        self.role_limits = limits;
+        self.role_report = report;
+    }
+
+    /// Rol profili: tekrar sınırları (block, stuck) ve rapor dosyası.
+    pub fn set_role_limits(&mut self, limits: Option<(u32, u32)>, report: &str) {
+        self.role_limits = limits;
+        self.role_report = report.to_string();
+    }
+
+    /// (block, stuck): rol profilininki, yoksa `EVREN_REPEAT_LIMITS` (varsayılan 5,8).
+    fn repeat_limits(&self) -> (u32, u32) {
+        if let Some(limits) = self.role_limits {
+            return limits;
+        }
+        let raw = std::env::var("EVREN_REPEAT_LIMITS")
+            .unwrap_or_default()
+            .replace(' ', "");
+        let raw = if raw.is_empty() { "5,8".to_string() } else { raw };
+        let parsed = raw
+            .split_once(',')
+            .and_then(|(a, b)| Some((a.parse::<u32>().ok()?, b.parse::<u32>().ok()?)));
+        let (block, stuck) = parsed.unwrap_or((5, 8));
+        let block = block.max(2);
+        (block, stuck.max(block))
+    }
+
+    /// Bir imzayı görev boyunca sayar; `block`tan itibaren reddeder, `stuck`ta görevi durdurur.
+    fn repeat_breaker(&mut self, signature: &str) -> String {
+        let count = self.sig_counts.get(signature).copied().unwrap_or(0) + 1;
+        self.sig_counts.insert(signature.to_string(), count);
+        let (block, stuck) = self.repeat_limits();
+        if count < block {
+            return String::new();
+        }
+        self.repeat_blocked_count += 1;
+        self.loop_blocks += 1;
+        if count >= stuck {
+            let short: String = signature.chars().take(160).collect();
+            self.stuck_reason = format!("aynı çağrı bu görevde {count} kez geldi: {short}");
+            return format!(
+                "TEKRAR ENGELLENDİ (repeat_blocked): Bu çağrı bu görevde {count}. kez geldi; görev outcome=stuck ile durduruluyor."
+            );
+        }
+        format!(
+            "TEKRAR ENGELLENDİ (repeat_blocked): Bu çağrı bu görevde {count}. kez geldi ve sonucu çalıştırılmadı. Aynı yaklaşım sonuç vermiyor: hipotezini değiştir (farklı dosya, farklı ölçüm, farklı düzeltme) ya da engeli ve kanıtını yazıp 'blocked' raporla. {stuck}. tekrarda görev durdurulur."
+        )
+    }
+
+    /// Aynı çağrının önceki çalışmasından farklı çıktı sayımı sıfırlar (ilerleme).
+    fn note_breaker_output(&mut self, fn_name: &str, args: &Value, result: &str) {
+        if repeat_exempt().contains(fn_name) {
+            return;
+        }
+        let signature = call_signature(fn_name, args);
+        let mut hasher = DefaultHasher::new();
+        output_noise_re().replace_all(result, "").hash(&mut hasher);
+        let digest = hasher.finish();
+        let previous = self.sig_last_out.insert(signature.clone(), digest);
+        if previous.is_some_and(|p| p != digest) {
+            self.sig_counts.insert(signature, 1);
+        }
+    }
+
+    /// Rolün `max_test_runs` kotası; aşıldıysa ret gerekçesi.
+    pub fn role_test_quota(
+        &mut self,
+        role: &str,
+        limit: Option<u32>,
+        fn_name: &str,
+        args: &Value,
+    ) -> String {
+        let Some(limit) = limit else {
+            return String::new();
+        };
+        if fn_name != "run_command" && fn_name != "ssh_run" {
+            return String::new();
+        }
+        if !test_cmd_re().is_match(arg_str(args, "command")) {
+            return String::new();
+        }
+        if self.role_test_runs >= limit {
+            let report = if self.role_report.is_empty() {
+                "raporunu"
+            } else {
+                self.role_report.as_str()
+            };
+            return format!(
+                "'{role}' rolü bu görevde test/derleme komutunu {limit} kez koştu (sınır). Kalan doğrulama orkestratörün işi: {report} dosyasına yapılanı ve son test sonucunu yaz, bitir."
+            );
+        }
+        self.role_test_runs += 1;
+        String::new()
     }
 
     /// Bu görevde `prefix` ile başlayan bir araç imzası görüldü mü (ör. `create_plan:`).
@@ -749,6 +853,11 @@ impl RepeatGuard {
             self.loop_blocks += 1;
             return "TEKRAR ENGELLENDİ: Bu çağrı bu görevde aynı argümanlarla zaten çalıştı ve o zamandan beri hiçbir dosya değişmedi; sonucu yukarıda. Aynı aracı aynı argümanla tekrar çağırma: bulduğun bilgiyle sıradaki adıma geç (edit_file ile düzenle, testi çalıştır) ya da sonucu bildir.".into();
         }
+        // Yalnız yeniden çalışacak çağrılar (arada yazma var) kesiciye ulaşır.
+        let broken = self.repeat_breaker(&signature);
+        if !broken.is_empty() {
+            return broken;
+        }
         self.call_epochs.insert(signature, self.write_epoch);
         if fn_name == "run_command" {
             let cmd = arg_str(args, "command").trim_start();
@@ -786,6 +895,7 @@ impl RepeatGuard {
 
     /// Yazmaları izler ve bu görevde daha önce görülen çıktıları işaretler.
     pub fn after_tool(&mut self, fn_name: &str, args: &Value, result: &str) -> String {
+        self.note_breaker_output(fn_name, args, result);
         if ["edit_file", "write_file", "ssh_write_file"].contains(&fn_name)
             && result.starts_with("BAŞARILI")
         {
@@ -891,6 +1001,15 @@ impl RepeatGuard {
         let base = step_notes(step_count, max_steps, stalled_steps);
         if !base.is_empty() {
             notes.push(base);
+        }
+        if !self.role_report.is_empty()
+            && max_steps >= 10
+            && max_steps.saturating_sub(step_count) == 5
+        {
+            notes.push(format!(
+                "[EVREN] RAPOR: 5 adım kaldı ({step_count}/{max_steps}). {} henüz yazılmadıysa şimdi yaz; rapor olmadan biten tur boşa gider. Sonra kalan adımlarda yalnız eksikleri tamamla.",
+                self.role_report
+            ));
         }
         if self.loop_blocks >= LOOP_BLOCK_LIMIT {
             notes.push("[EVREN] DÖNGÜ: aynı araç çağrılarını tekrarlıyorsun. Bu tur araç kullanma; şimdiye kadarki bulgularla yapılanı, kalan işi ve tek somut sonraki adımı yaz.".into());

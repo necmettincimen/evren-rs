@@ -25,6 +25,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::compaction::{truncate_tool_content, HistoryCompactor};
 use crate::context::{compose_system, git_context_block, SYSTEM_PROMPT};
+use crate::roles::RoleProfile;
 use crate::guards::{RepeatGuard, TASK_NOISE_PREFIXES};
 use crate::prompt_frame::{self, PromptFrame};
 use crate::route::ExecProfile;
@@ -170,6 +171,10 @@ pub struct AgentSession {
     pub(crate) events: EventSender,
     pub(crate) cancel: CancellationToken,
     pub(crate) tool_ctx: Arc<ToolContext>,
+    /// `--role` / `--profile` ile seçilen rol profili.
+    pub(crate) role: Option<RoleProfile>,
+    /// `--task-ref` (iz kaydına yazılır).
+    pub(crate) task_ref: String,
 }
 
 impl AgentSession {
@@ -242,7 +247,43 @@ impl AgentSession {
             events,
             cancel,
             tool_ctx,
+            role: None,
+            task_ref: String::new(),
         }
+    }
+
+    /// Temel sistem istemi: SYSTEM_PROMPT + (varsa) rol bloğu.
+    fn base_prompt(&self) -> String {
+        match &self.role {
+            Some(role) => format!("{}
+
+{}", SYSTEM_PROMPT.trim_end(), role.prompt_block()),
+            None => SYSTEM_PROMPT.to_string(),
+        }
+    }
+
+    /// Rol profilini uygular: adım tavanı, sistem istemi ve tekrar sınırları.
+    pub fn apply_role(&mut self, profile: RoleProfile) {
+        if profile.max_steps.is_some() {
+            self.max_steps = profile.max_steps;
+        }
+        self.guard
+            .set_role_limits(Some((profile.repeat_block, profile.repeat_stuck)), &profile.report);
+        self.role = Some(profile);
+        self.refresh_context();
+    }
+
+    pub fn role(&self) -> Option<&RoleProfile> {
+        self.role.as_ref()
+    }
+
+    pub fn set_task_ref(&mut self, task_ref: &str) {
+        self.task_ref = task_ref.trim().to_string();
+    }
+
+    /// Bu görevde tekrar engeline takılan çağrı sayısı (`-p` JSON çıktısı).
+    pub fn repeat_blocked(&self) -> u32 {
+        self.guard.repeat_blocked_count
     }
 
     // ------------------------------------------------------------ erişim
@@ -407,7 +448,7 @@ impl AgentSession {
     /// Sistem iletisini temel + bloklar + kalıp olarak yeniden kurar (`refresh_context`).
     pub fn refresh_context(&mut self) {
         let base = compose_system(
-            SYSTEM_PROMPT,
+            &self.base_prompt(),
             &self.workspace_root,
             &self.config,
             &self.git_block,
@@ -481,7 +522,7 @@ impl AgentSession {
         self.todos.clear();
         self.git_block = git_context_block(&self.workspace_root, GIT_BLOCK_TIMEOUT);
         self.system_prompt = compose_system(
-            SYSTEM_PROMPT,
+            &self.base_prompt(),
             &self.workspace_root,
             &self.config,
             &self.git_block,

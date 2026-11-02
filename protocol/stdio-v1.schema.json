@@ -55,7 +55,9 @@
     "unsupported_slash",
     "mention",
     "quota",
-    "internal"
+    "internal",
+    "bad_role",
+    "bad_root"
   ],
   "$defs": {
     "error_code": {
@@ -74,7 +76,9 @@
         "unsupported_slash",
         "mention",
         "quota",
-        "internal"
+        "internal",
+        "bad_role",
+        "bad_root"
       ]
     },
     "command_envelope": {
@@ -735,6 +739,17 @@
           "enum": [
             0,
             1
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "ok",
+            "error",
+            "max_steps",
+            "interrupted",
+            "exception",
+            "stuck",
+            "budget"
           ]
         }
       },

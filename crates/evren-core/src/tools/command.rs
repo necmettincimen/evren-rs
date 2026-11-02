@@ -326,7 +326,7 @@ pub fn tool_run_command(
         Err(e) => return format!("HATA: {e}"),
     };
     let mut cmd = argv.to_command();
-    cmd.current_dir(&ctx.root);
+    cmd.current_dir(ctx.root());
     let outcome = match stream_with_tree_kill(
         &mut cmd,
         Some(Duration::from_secs(timeout as u64)),
@@ -346,7 +346,7 @@ pub fn tool_run_command(
     if !out.is_empty() {
         lines.push(format!(
             "STDOUT:\n{}",
-            spill_long_output(out, Some(&ctx.root), "cmd")
+            spill_long_output(out, Some(&ctx.root()), "cmd")
         ));
     }
     if !err.is_empty() {
@@ -375,7 +375,7 @@ pub fn start_background_command(
         Argv::Shell(_) => None,
     };
     let mut manager = lock_manager(ctx);
-    match manager.start(command, &ctx.root, list.as_deref(), &[]) {
+    match manager.start(command, &ctx.root(), list.as_deref(), &[]) {
         Ok(record) => format!(
             "BAŞARILI: Arka plan komutu başlatıldı (id: {}). Çıktı/durum için check_background, sonlandırmak için stop_background kullan.",
             record.id

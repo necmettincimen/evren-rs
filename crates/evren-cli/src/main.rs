@@ -52,6 +52,18 @@ struct Cli {
     /// Son oturuma devam et
     #[arg(long = "continue")]
     continue_session: bool,
+    /// Rol profili: analyst, developer, tester, shipper ya da .evren/roles/<ad>.json
+    #[arg(long)]
+    role: Option<String>,
+    /// Rol profili dosyası (.json); --role yerine
+    #[arg(long)]
+    profile: Option<String>,
+    /// Ek çalışma kökü AD=YOL (yinelenebilir); araçlarda `AD:yol` ya da root="AD"
+    #[arg(long = "root", value_name = "AD=YOL")]
+    roots: Vec<String>,
+    /// Görev referansı (iz kaydına yazılır; sdlc görev kimliği)
+    #[arg(long)]
+    task_ref: Option<String>,
     /// NDJSON stdio sunucusu (v1 protokolü)
     #[arg(long)]
     stdio: bool,
@@ -397,10 +409,11 @@ async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
             yes: cli.yes,
             allowed_tools: split_tools(cli.allowed_tools.as_deref()),
             continue_session: cli.continue_session,
+            role: cli.profile.clone().or_else(|| cli.role.clone()),
+            roots: cli.roots.clone(),
+            task_ref: cli.task_ref.clone().unwrap_or_default(),
         };
-        return stdio::serve(&config, opts, &workspace)
-            .await
-            .map(|()| ExitCode::SUCCESS);
+        return stdio::serve(&config, opts, &workspace).await;
     }
     if let (Some(prompt), None) = (cli.print_prompt.clone(), cli.command.as_ref()) {
         let opts = headless::HeadlessOptions {
@@ -411,6 +424,9 @@ async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
             yes: cli.yes,
             allowed_tools: split_tools(cli.allowed_tools.as_deref()),
             continue_session: cli.continue_session,
+            role: cli.profile.clone().or_else(|| cli.role.clone()),
+            roots: cli.roots.clone(),
+            task_ref: cli.task_ref.clone().unwrap_or_default(),
         };
         return headless::run(&config, opts, &workspace).await;
     }

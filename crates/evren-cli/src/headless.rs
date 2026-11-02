@@ -11,6 +11,8 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use evren_agent::mentions::expand_mentions;
+use evren_agent::roles::load_profile;
+use evren_agent::trace::classify_outcome;
 use evren_agent::sessions::{dumps_py, list_sessions};
 use evren_agent::{AgentEvent, AgentSession};
 use evren_api::ApiClient;
@@ -30,6 +32,10 @@ pub struct HeadlessOptions {
     pub yes: bool,
     pub allowed_tools: Vec<String>,
     pub continue_session: bool,
+    /// `--profile` ya da `--role`.
+    pub role: Option<String>,
+    pub roots: Vec<String>,
+    pub task_ref: String,
 }
 
 /// Görevi çalıştırır; dönüş kodu 0 (başarı) ya da 1 (`HATA:`/`İPTAL:`).
@@ -38,6 +44,21 @@ pub async fn run(
     opts: HeadlessOptions,
     workspace: &Path,
 ) -> Result<ExitCode, EvrenError> {
+    // Kökler oturumdan önce: sistem istemine girerler.
+    if let Err(e) = evren_core::tools::roots::set_roots(&opts.roots) {
+        eprintln!("HATA: {e}");
+        return Ok(ExitCode::from(2));
+    }
+    let profile = match &opts.role {
+        Some(spec) => match load_profile(spec, Some(workspace)) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                eprintln!("HATA: {e}");
+                return Ok(ExitCode::from(2));
+            }
+        },
+        None => None,
+    };
     let client = Arc::new(ApiClient::new(config)?);
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut session = AgentSession::new(
@@ -48,6 +69,10 @@ pub async fn run(
         CancellationToken::new(),
     );
     session.set_auto_approve(opts.yes);
+    session.set_task_ref(&opts.task_ref);
+    if let Some(profile) = profile {
+        session.apply_role(profile);
+    }
     if !opts.allowed_tools.is_empty() {
         session.set_extra_allow(opts.allowed_tools.clone());
     }
@@ -98,6 +123,11 @@ pub async fn run(
             .as_ref()
             .and_then(|s| s.token_report().get("session_usage").cloned())
             .unwrap_or(Value::Null);
+        let role = session
+            .as_ref()
+            .and_then(|s| s.role().map(|r| Value::from(r.name.clone())))
+            .unwrap_or(Value::Null);
+        let repeat_blocked = session.as_ref().map_or(0, |s| s.repeat_blocked());
         let model = session
             .as_ref()
             .map(|s| s.model().to_string())
@@ -109,6 +139,9 @@ pub async fn run(
             "tokens": tokens,
             "exit_code": code,
             "model": model,
+            "outcome": classify_outcome(Some(&result)),
+            "role": role,
+            "repeat_blocked": repeat_blocked,
         });
         println!("{}", dumps_py(&payload));
     } else if !result.is_empty() {

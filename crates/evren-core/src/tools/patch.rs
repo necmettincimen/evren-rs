@@ -170,7 +170,7 @@ fn cut(patch: &str, n: usize) -> &str {
 
 /// `tool_apply_patch`: önizleme, onay, yedek ve yazma.
 pub fn tool_apply_patch(ctx: &ToolContext, patch: &str, auto_approve: bool) -> String {
-    let root = &ctx.root;
+    let root = &ctx.root();
     let files = parse_patch(patch);
     if files.is_empty() {
         return "HATA: Geçerli unified diff bulunamadı.".to_string();

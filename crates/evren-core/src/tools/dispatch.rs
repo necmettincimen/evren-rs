@@ -44,6 +44,12 @@ pub fn execute_tool_call(
     auto_approve: bool,
 ) -> String {
     let name = canonical_tool_name(name);
+    // `api:src/x.py` / root="api" başka bir kayıtlı kökü seçer (--root).
+    let (arguments, picked_root, root_error) = super::roots::route(name, arguments);
+    if !root_error.is_empty() {
+        return root_error;
+    }
+    let _root_guard = picked_root.map(|r| super::roots::RootOverride::set(Some(r)));
     let args = match normalize_tool_arguments(
         name,
         arguments,
@@ -53,7 +59,7 @@ pub fn execute_tool_call(
         Ok(a) => a,
         Err(exc) => return format!("HATA: '{name}' için geçersiz araç argümanları: {exc}"),
     };
-    let root = &ctx.root;
+    let root = &ctx.root();
     match name {
         "view_file" => tool_view_file(
             ctx,

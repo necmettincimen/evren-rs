@@ -19,6 +19,7 @@ pub mod fs_tools;
 pub mod patch;
 pub mod proc;
 pub mod registry;
+pub mod roots;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -119,6 +120,11 @@ pub struct ToolContext {
 }
 
 impl ToolContext {
+    /// Bu çağrının kökü: `--root` ile seçilen ek kök ya da ana çalışma dizini.
+    pub fn root(&self) -> PathBuf {
+        roots::current_override().unwrap_or_else(|| self.root.clone())
+    }
+
     /// Verilen yapılandırmayla bağlam; onay geri çağrısı yoksa her şey onaylanır.
     pub fn new(root: &Path, config: &Config) -> Self {
         ToolContext {

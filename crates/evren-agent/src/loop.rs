@@ -10,6 +10,7 @@ use evren_api::client::normalize_messages;
 use evren_api::{ChatRequest, ChatResponse, StreamDelta};
 use evren_core::tools::dispatch::execute_tool_call;
 use evren_core::tools::registry::tools_for_mode;
+use evren_core::tools::roots::{self, schema_with_roots};
 use evren_core::tools::Mode;
 use serde_json::{json, Value};
 use tokio::sync::oneshot;
@@ -258,13 +259,33 @@ impl AgentSession {
         result_text
     }
 
+    /// Rolün görev token bütçesi aşıldıysa hata metni, değilse boş dize.
+    fn role_budget_exceeded(&self) -> String {
+        let Some(role) = &self.role else {
+            return String::new();
+        };
+        let budget = role.token_budget.unwrap_or(0);
+        if budget == 0 {
+            return String::new();
+        }
+        let used = self.usage_totals.total_tokens - self.task_usage_base;
+        if used <= budget as i64 {
+            return String::new();
+        }
+        format!(
+            "HATA: BÜTÇE aşıldı: '{}' rolünün görev token bütçesi {budget}, kullanılan {used}. Görev durduruldu.",
+            role.name
+        )
+    }
+
     // ------------------------------------------------------------ iz
 
     fn trace_task_begin(&mut self, text: &str, mode: Mode) {
         let vault = self.vault_lock().clone();
         let mut writer = TaskTrace::new(&self.workspace_root, self.config.trace_enabled())
             .with_masker(Arc::new(move |t: &str| vault.mask(t)));
-        writer.start(&self.model, mode.as_str(), text);
+        let role = self.role.as_ref().map(|r| r.name.clone()).unwrap_or_default();
+        writer.start(&self.model, mode.as_str(), text, &role, &self.task_ref);
         self.trace_writer = Some(writer);
     }
 
@@ -546,6 +567,13 @@ impl AgentSession {
                 }
             };
             self.api_retries = 0;
+            let over = self.role_budget_exceeded();
+            if !over.is_empty() {
+                self.error(over.clone());
+                self.messages
+                    .push(json!({"role": "assistant", "content": over}));
+                return Ok(over);
+            }
             let classified = classify_response(&outcome.response);
             match classified.kind {
                 ResponseKind::ContentFilter => {
@@ -610,8 +638,38 @@ impl AgentSession {
                     self.emit(AgentEvent::Assistant(classified.content.clone()));
                 }
                 let mut prefetched = self.prefetch_readonly(&classified.calls).await?;
+                // Aynı yanıttaki kopya çağrılar bir kez çalışır; kopyalar tek satır yanıt alır.
+                let mut seen_calls: HashMap<(String, String), u32> = HashMap::new();
                 for tc in &classified.calls {
+                    let key = (
+                        call_fn_name(tc).to_string(),
+                        call_raw_args(tc)
+                            .map(|v| match v {
+                                Value::String(s) => s.clone(),
+                                other => other.to_string(),
+                            })
+                            .unwrap_or_default(),
+                    );
+                    if let Some(n) = seen_calls.get_mut(&key) {
+                        *n += 1;
+                        let reply = format!(
+                            "YİNELENEN ÇAĞRI: bu adımda zaten gönderildi ({n}. kopya), çalıştırılmadı; sonucu ilk çağrının yanıtında. Her çağrıyı bir kez gönder."
+                        );
+                        self.tool_reply(call_id(tc), &key.0, &reply);
+                        continue;
+                    }
+                    seen_calls.insert(key, 1);
                     mode = self.run_one_tool(tc, &mut prefetched, mode).await?;
+                }
+                if !self.guard.stuck_reason.is_empty() {
+                    let error = format!(
+                        "HATA: STUCK: {}. Hipotez değiştirilmedi; görev durduruldu.",
+                        self.guard.stuck_reason
+                    );
+                    self.error(error.clone());
+                    self.messages
+                        .push(json!({"role": "assistant", "content": error}));
+                    return Ok(error);
                 }
                 continue;
             }
@@ -774,7 +832,10 @@ impl AgentSession {
             outgoing.push(json!({"role": "user", "content": notes}));
         }
         let outgoing = normalize_messages(&outgoing);
-        let tools = tools_for_mode(mode, true, false);
+        let mut tools = schema_with_roots(tools_for_mode(mode, true, false));
+        if let Some(role) = &self.role {
+            tools = role.advertised(tools);
+        }
         let tool_choice = if self.listing_done || self.guard.loop_blocks >= LOOP_BLOCK_LIMIT {
             Some(Value::String("none".into()))
         } else {
@@ -975,6 +1036,23 @@ impl AgentSession {
         mode: Mode,
         started: Instant,
     ) -> Result<(bool, bool), Cancelled> {
+        // Rol kapısı: profilin araç, yol, komut ve ağ sınırları burada uygulanır.
+        if let Some(role) = &self.role {
+            let root = self.workspace_root.clone();
+            let rel = move |raw: &str| roots::relative(&roots::resolve(raw, &root), &root);
+            let mut reason = role.check(fn_name, args, &rel);
+            if reason.is_empty() {
+                let (name, limit) = (role.name.clone(), role.max_test_runs);
+                reason = self.guard.role_test_quota(&name, limit, fn_name, args);
+            }
+            if !reason.is_empty() {
+                let result = format!("REDDEDİLDİ: {reason}");
+                self.tool_result_event(call_id, fn_name, &reason, true, None);
+                self.trace_tool(fn_name, args, started, &result, false);
+                self.tool_reply(call_id, fn_name, &result);
+                return Ok((true, false));
+            }
+        }
         let (allowed, reason) = check_tool_allowed(fn_name, args, mode);
         if !allowed {
             let result = format!("REDDEDİLDİ: {reason}");
@@ -1008,7 +1086,14 @@ impl AgentSession {
         }
         let blocked = self.guard.check(fn_name, args);
         if !blocked.is_empty() {
-            self.tool_result_event(call_id, fn_name, "tekrar eden çağrı engellendi", true, None);
+            // Ayrıntı ret metnidir: stdio özeti `repeat_blocked` içerir (sdlc sayar).
+            self.tool_result_event(
+                call_id,
+                fn_name,
+                "tekrar eden çağrı engellendi",
+                true,
+                Some(&blocked),
+            );
             self.trace_tool(fn_name, args, started, &blocked, true);
             self.tool_reply(call_id, fn_name, &blocked);
             return Ok((true, perm_allow));

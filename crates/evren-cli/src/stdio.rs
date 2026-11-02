@@ -7,11 +7,14 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use evren_agent::mentions::expand_mentions;
 use evren_agent::sessions::{list_sessions, session_summary, sessions_dir};
+use evren_agent::roles::{load_profile, RoleProfile};
+use evren_agent::trace::classify_outcome;
 use evren_agent::{AgentEvent, AgentSession, EventSender};
 use evren_api::ApiClient;
 use evren_core::config::Config;
@@ -43,6 +46,10 @@ pub struct ServeOptions {
     pub yes: bool,
     pub allowed_tools: Vec<String>,
     pub continue_session: bool,
+    /// `--profile` ya da `--role`.
+    pub role: Option<String>,
+    pub roots: Vec<String>,
+    pub task_ref: String,
 }
 
 enum Pending {
@@ -63,6 +70,8 @@ struct Server {
     config: Config,
     client: Arc<ApiClient>,
     opts: ServeOptions,
+    /// `--role` / `--profile` profili; her yeni oturuma uygulanır.
+    profile: Option<RoleProfile>,
     /// Tur sırasında işçi göreve taşınır (`None` = meşgul).
     session: Option<AgentSession>,
     turn: Option<Turn>,
@@ -92,6 +101,10 @@ impl Server {
             CancellationToken::new(),
         );
         session.set_auto_approve(self.opts.yes);
+        session.set_task_ref(&self.opts.task_ref);
+        if let Some(profile) = self.profile.clone() {
+            session.apply_role(profile);
+        }
         if !self.opts.allowed_tools.is_empty() {
             session.set_extra_allow(self.opts.allowed_tools.clone());
         }
@@ -318,11 +331,13 @@ impl Server {
         self.usage = session_usage(&session);
         self.session = Some(session);
         self.send_usage(cid).await;
+        let turn_outcome = classify_outcome(Some(&result));
         let ev = self
             .event(EventType::TurnEnd, cid)
             .field("result", result)
             .field("changed_files", Value::Array(changed))
-            .field("exit_code", code);
+            .field("exit_code", code)
+            .field("outcome", turn_outcome);
         self.send(ev).await;
     }
 
@@ -836,13 +851,35 @@ async fn wait_turn(
 
 // ------------------------------------------------------------------- giriş
 
+/// Python: `{"type":"error","code":...,"message":...}` (zarf/id yok).
+async fn startup_error(code: ErrorCode, message: &str) {
+    let line = json!({"type": "error", "code": code.as_str(), "message": message});
+    let mut out = tokio::io::stdout();
+    let _ = crate::write_line(&mut out, &line.to_string()).await;
+}
+
 /// `evren --stdio`: `ready` yazar, stdin satırlarını işler, EOF'ta turu
-/// iptal edip (en çok 5 sn) çıkar. Dönüş kodu her zaman 0'dır.
+/// iptal edip (en çok 5 sn) çıkar. Dönüş kodu 0; hatalı kök/rolde 2.
 pub async fn serve(
     config: &Config,
     opts: ServeOptions,
     workspace: &Path,
-) -> Result<(), EvrenError> {
+) -> Result<ExitCode, EvrenError> {
+    // Python: hatalı kök/rol hazır olayından önce tek `error` satırı ve çıkış 2.
+    if let Err(e) = evren_core::tools::roots::set_roots(&opts.roots) {
+        startup_error(ErrorCode::BadRoot, &e).await;
+        return Ok(ExitCode::from(2));
+    }
+    let profile = match &opts.role {
+        Some(spec) => match load_profile(spec, Some(workspace)) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                startup_error(ErrorCode::BadRole, &e).await;
+                return Ok(ExitCode::from(2));
+            }
+        },
+        None => None,
+    };
     let client = Arc::new(ApiClient::new(config)?);
     let (events_tx, events_rx) = mpsc::unbounded_channel();
     let model = opts.model.clone().unwrap_or_else(|| config.default_model());
@@ -852,6 +889,7 @@ pub async fn serve(
         config: config.clone(),
         client,
         opts,
+        profile,
         session: None,
         turn: None,
         turn_handle: None,
@@ -913,7 +951,7 @@ pub async fn serve(
             }
         }
     }
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 #[cfg(test)]

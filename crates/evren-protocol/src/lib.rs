@@ -32,10 +32,12 @@ pub enum ErrorCode {
     Mention,
     Quota,
     Internal,
+    BadRole,
+    BadRoot,
 }
 
 impl ErrorCode {
-    pub const ALL: [ErrorCode; 15] = [
+    pub const ALL: [ErrorCode; 17] = [
         ErrorCode::InvalidJson,
         ErrorCode::InvalidMessage,
         ErrorCode::UnsupportedVersion,
@@ -51,6 +53,8 @@ impl ErrorCode {
         ErrorCode::Mention,
         ErrorCode::Quota,
         ErrorCode::Internal,
+        ErrorCode::BadRole,
+        ErrorCode::BadRoot,
     ];
 
     /// Şemadaki dizge karşılığı (`snake_case`).
@@ -71,6 +75,8 @@ impl ErrorCode {
             ErrorCode::Mention => "mention",
             ErrorCode::Quota => "quota",
             ErrorCode::Internal => "internal",
+            ErrorCode::BadRole => "bad_role",
+            ErrorCode::BadRoot => "bad_root",
         }
     }
 }

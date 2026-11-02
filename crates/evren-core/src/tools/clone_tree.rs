@@ -68,7 +68,7 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
 
 /// `tool_clone_tree(arguments, root)`.
 pub fn tool_clone_tree(ctx: &ToolContext, arguments: &Value) -> String {
-    let root = resolve_path(&ctx.root);
+    let root = resolve_path(&ctx.root());
     let get_str = |k: &str| {
         arguments.get(k).map(|v| {
             v.as_str()

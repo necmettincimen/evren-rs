@@ -82,7 +82,7 @@ pub fn tool_view_file(
     start_line: Option<i64>,
     end_line: Option<i64>,
 ) -> String {
-    let root = &ctx.root;
+    let root = &ctx.root();
     let lower = path.to_lowercase();
     if IMAGE_SUFFIXES.iter().any(|s| lower.ends_with(s)) {
         let resolved = resolve_workspace_path(path, root);
@@ -204,7 +204,7 @@ fn is_blank_value(v: Option<&Value>) -> bool {
 
 /// `tool_edit_file`: snippet ya da satır aralığı ile düzenleme; diff özeti döner.
 pub fn tool_edit_file(ctx: &ToolContext, args: EditArgs<'_>) -> String {
-    let root = &ctx.root;
+    let root = &ctx.root();
     let path = args.path;
     let (old, meta) = match read_file_with_meta(path, root, 0) {
         Ok(v) => v,
@@ -338,7 +338,7 @@ pub fn tool_write_file(
     auto_approve: bool,
     append: bool,
 ) -> String {
-    let root = &ctx.root;
+    let root = &ctx.root();
     let resolved = resolve_workspace_path(path, root);
     let exists = resolved.exists();
     let mut content = content.to_string();
@@ -438,7 +438,7 @@ fn list_recursive(start: &Path) -> Vec<PathBuf> {
 
 /// `tool_list_directory`: 📁/📄 satırları, en fazla 100 kayıt.
 pub fn tool_list_directory(ctx: &ToolContext, path: &str, recursive: bool) -> String {
-    let root = &ctx.root;
+    let root = &ctx.root();
     let path = if path.is_empty() { "." } else { path };
     let resolved = resolve_workspace_path(path, root);
     let (safe, reason) = is_safe_path(&resolved, root, true);
@@ -752,7 +752,7 @@ fn context_blocks(rel: &str, lines: &[&str], matcher: &QueryMatcher, context: i6
 
 /// `tool_find_files`: glob ile dosya bulur; `query` ile `grep -n` biçiminde satırlar.
 pub fn tool_find_files(ctx: &ToolContext, pattern: &str, query: &str, context: i64) -> String {
-    let root = resolve_path(&ctx.root);
+    let root = resolve_path(&ctx.root());
     let skip = [
         ".git",
         ".venv",
@@ -855,7 +855,7 @@ pub fn tool_create_plan(
     content: &str,
     auto_approve: bool,
 ) -> String {
-    let root = &ctx.root;
+    let root = &ctx.root();
     let safe_name: String = name
         .chars()
         .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')

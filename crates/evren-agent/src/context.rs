@@ -308,6 +308,10 @@ pub fn compose_system(
     git_block: &str,
 ) -> String {
     let mut blocks = vec![execution_context_block(workspace_root, config)];
+    let roots_note = evren_core::tools::roots::prompt_note(workspace_root);
+    if !roots_note.is_empty() {
+        blocks.push(roots_note);
+    }
     if !git_block.is_empty() {
         blocks.push(git_block.to_string());
     }
