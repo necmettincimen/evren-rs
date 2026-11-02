@@ -5,6 +5,27 @@ Bu projedeki tüm önemli değişiklikler bu dosyada belgelenir.
 Format [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) standardına,
 sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kurallarına dayanır.
 
+## [4.1.0] - 2026-11-02
+
+### Eklendi
+- Python 3.11 sürümüyle komut paritesi; Faz 4 komut listesi kapandı.
+- REPL: `/context`, `/compact`, `/rewind`, `/doctor`, `/rol`, `/commit`, `/review`, `/init`,
+  `/files`, `/add`, `/drop`, `/scan`, `/run`, `/memory`, `/language`, `/resume`, `/keys`,
+  `/debug`, `.evren/commands/*.md` özel komutları; `/docs`, `/skills`, `/skill`, `/apply`,
+  `/diagnose`, `/template`, `/playbook`, `/track`, `/task`, `/progress`, `/checkpoint`,
+  `/blockers`, `/check-in`, `/decisions`, `/ssh`.
+- `/iterate` (`/iterasyon`) ve `evren iterate`: kontrol-düzelt döngüsü, `.evren/iterations/`
+  durum dosyası, `devam`/`durum`.
+- Ajan kitaplığı: yerleşik (devops, fullstack, product-owner, researcher, tester), kullanıcı ve
+  proje ajanları (`.evren/agents/*.md`); `/agent`, `/agents`, `/team`, `@ajan görev`;
+  `delegate` tanımlı alt ajanları çalıştırır.
+- `/update` ve `evren update [--no-restart]`: checkout'ta `git pull --ff-only`, değilse
+  `%LOCALAPPDATA%/evren-rs/source` klonu; Windows'ta `install.ps1` CLI kapandıktan sonra ayrı
+  pencerede çalışır.
+- TOML rol dosyaları (`--role x.toml`).
+- `memory_save`, `web_fetch` araçları; `evren plan`; prompt çerçevesi; `agent.md`/changelog
+  yönetilen blokları ve `evren docs`.
+
 ## [4.0.0] - 2026-11-02
 
 ### Eklendi
@@ -37,8 +58,5 @@ sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kura
   bayraklarını alır; bayrak ve istek yoksa uçbirimde beş satır sorulur. REPL'de Brief
   netleştirme ve boş alan önerileri (`EVREN_CLARIFY_ROUNDS`, `EVREN_FRAME_SUGGEST`,
   `EVREN_FORM_FIELDS`). `evren agent` tek seferlik görev olarak çalışır.
-- Kalan: `/docs`, `/skills` ve Faz 4 komutları.
-- `agent.md` yönetilen blokları, `plan_runner`, SSH araçları, skills, memory, `web_fetch`.
-- TOML rol dosyaları (bu sürümde yalnız JSON).
-- Kurulum dışındaki Faz 4/5 işleri: `vision_search`, MCP istemcisi, terminal kurulumu,
-  güncelleyici, `/team`.
+- Kalan (4.1.0'da kapandı): Faz 4 komutları, TOML roller, güncelleyici, `/team`.
+- Sonraya: `vision_search`, MCP istemcisi, terminal kurulumu.

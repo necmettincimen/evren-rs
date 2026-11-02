@@ -1,4 +1,4 @@
-# 4.1.0 çalışma durumu
+# 4.1.0 durumu (tamamlandı)
 
 Hedef: 4.0.0 üzerine Python sürümüyle parite; sürüm 4.1.0. Ayrıntılı 4.0.0 durumu:
 `docs/surum-4.0.0-durum.md`.
@@ -45,22 +45,26 @@ Hedef: 4.0.0 üzerine Python sürümüyle parite; sürüm 4.1.0. Ayrıntılı 4.
      ve çalıştırıcı adım testleri taşındı.
    - Doğrulama: `cargo test` 299 geçti, clippy temiz; kuru çalıştırma çıktısı Python ile birebir.
 
-## Kalanlar (sırayla)
+6. Faz 4 komutları (commit `50357ea`, `61ebb7b`, `60baf7e`):
+   - `/iterate` + `evren iterate` (`evren-tui` `iteration`).
+   - `tool_gateway` paritesi (`guards::check_tool_allowed`) ve TOML rol dosyaları.
+   - Ajan kitaplığı (`evren-agent` `agent_library`), `/agent`, `/agents`, `/team`, `@ajan`;
+     `delegate` tanımlı alt ajanlar.
+   - `/update` ve `evren update` (`evren-tui` `updater`); `PHASE4_COMMANDS` kaldırıldı.
 
-4. Faz 4:
-   - Komutlar: skills, playbook, template, track/task/progress/checkpoint/blockers/check-in/decisions.
-   - SSH araçları ve `/ssh`, `/iterate`, `output_summary`, `tool_gateway`, TOML rolleri.
-5. Kapanış:
-   - Sürüm 4.1.0.
-   - Doğrulama: `cargo build --release`, `cargo test`, `cargo test -- --ignored`, clippy.
-   - `scripts/install.ps1` ve `evren --version` kontrolü; CHANGELOG ve push.
+7. Kapanış: sürüm 4.1.0; `cargo build --release`, `cargo test`, clippy, `scripts/install.ps1`,
+   `evren --version` → `evren 4.1.0`.
+
+## Sonraki işler
+
+- `vision_search`, MCP istemcisi, terminal kurulumu.
+- `report_ready_for_test` (ClickUp akışı).
 
 ## Notlar
 
 - `report_ready_for_test` Rust'ta henüz çağrılmıyor (Python'da ClickUp akışı kullanır).
 
 - Python `/doctor` Python sürüm satırı yerine çalıştırılabilir yolunu basar.
-- `/resume playbook` Faz 4'e kadar Faz 4 mesajı verir.
 - REPL'de `EVREN_FORM_FIELDS` kapalıyken boş Brief hiçbir şey yapmaz (Python son kalıbı yeniden
   çalıştırır).
 - `agent.md` çalışma zamanı satırı Rust sürümünü yazar; proje haritası Cargo.toml ipuçlarını da
@@ -69,3 +73,5 @@ Hedef: 4.0.0 üzerine Python sürümüyle parite; sürüm 4.1.0. Ayrıntılı 4.
 - `cargo test -- --ignored` (Python oracle) 3.12.0+ ister; `../evren-cli` `master` 3.11.0'da
   olduğundan 5 test düşer. 3.12.2 (`claude/evren-sdlc-faz0-ce3b75`) kopyasıyla
   `EVREN_CLI_ROOT=<kopya>` verilince 18/18 geçer.
+- `/update` Rust kurulumuna uyarlandı: kaynak satırı `github.com/necmettincimen/evren-rs`, pip yerine
+  `kaynak klonu`; Windows'ta pip yerine `scripts/install.ps1` ertelenir.
