@@ -53,7 +53,7 @@ evren --version
 ```
 
 API anahtarı ve model: `evren` açıp `/keys` ile ekle ya da başka makinedeki
-`%LOCALAPPDATA%\\evren\bin\config.json` dosyasını kopyala (depoya koyma). evren-sdlc için
+`%LOCALAPPDATA%\evren\bin\config.json` dosyasını kopyala (depoya koyma). evren-sdlc için
 `~/.evren-sdlc.toml` içinde `command = ["evren"]`.
 
 ## Geri alma
