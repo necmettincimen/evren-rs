@@ -1,6 +1,7 @@
 //! Ajan döngüsü: oturum durumu, adım döngüsü, korumalar, bağlam sıkıştırma,
 //! planlayıcı yönlendirmesi ve görev izi (Python `agent.py` paritesi).
 
+pub mod agent_library;
 pub mod compaction;
 pub mod context;
 pub mod guards;

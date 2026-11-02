@@ -292,6 +292,10 @@ pub fn compose_system(
     if !role.is_empty() {
         blocks.push(role);
     }
+    let agent = crate::agent_library::agent_context_block(workspace_root, config);
+    if !agent.is_empty() {
+        blocks.push(agent);
+    }
     let lang = evren_core::language::language_context_block(workspace_root);
     if !lang.is_empty() {
         blocks.push(lang);

@@ -78,11 +78,24 @@ EVREN CLI Komutları:
   /exit         - Çıkış
 ";
 
-/// Faz 4'e kalan komutlar (beceriler, takip, SSH, ekip, güncelleme).
-const PHASE4_COMMANDS: &[&str] = &["/agent", "/agents", "/team", "/update"];
-
-pub fn phase4_message(cmd: &str) -> String {
-    format!("{cmd} komutu Faz 4'te gelecek; bu sürümde henüz yok.")
+/// `/update`: `true` ise REPL kapanmalı (ertelenmiş kurulum).
+fn update() -> bool {
+    use crate::updater;
+    print_info(&updater::source_line());
+    print_info(updater::SPINNER_TEXT);
+    let (ok, msg) = updater::perform_update();
+    if !ok {
+        print_error(&format!("Güncelleme başarısız: {msg}"));
+        return false;
+    }
+    if updater::update_is_deferred() {
+        print_success(&msg);
+        print_info("EVREN CLI güncelleme için kapatılıyor.");
+        return true;
+    }
+    print_success("Güncelleme tamamlandı. CLI yeni sürümle yeniden başlatılıyor...");
+    print_error(&updater::restart_process());
+    false
 }
 
 impl crate::iteration::IterationHost for Repl {
@@ -484,6 +497,16 @@ impl Repl {
             self.run_turn(Turn::Execute(text)).await;
             return Flow::Continue;
         }
+        if let Some((name, task)) = crate::agents::parse_mention(&text) {
+            let known = self.session.as_ref().is_some_and(|s| {
+                evren_agent::agent_library::get_agent(&name, s.workspace_root(), s.config())
+                    .is_some()
+            });
+            if known {
+                self.run_with_agent(&name, &task).await;
+                return Flow::Continue;
+            }
+        }
         let frame = match self.collect_frame(&text, opts) {
             Ok(Collected::Frame(frame)) => frame,
             Ok(Collected::Command(command)) => return self.command(&command).await,
@@ -675,6 +698,51 @@ impl Repl {
         }
         session.save_session();
         self.session = Some(session);
+    }
+
+    /// `task`'ı `name` ajanı geçici ana ajanken bir kez çalıştırır.
+    async fn run_with_agent(&mut self, name: &str, task: &str) -> bool {
+        let Some(session) = self.session.as_mut() else {
+            return false;
+        };
+        let config = session.config();
+        if evren_agent::agent_library::get_agent(name, session.workspace_root(), config).is_none() {
+            print_error(&format!("Ajan bulunamadı: {name}"));
+            return false;
+        }
+        let previous = crate::agents::push_agent(session, name);
+        let prompt = session.compact_user_text(task);
+        self.run_turn(Turn::Step(prompt)).await;
+        if let Some(session) = self.session.as_mut() {
+            crate::agents::pop_agent(session, previous);
+        }
+        true
+    }
+
+    /// `/team <görev>`: product-owner → fullstack → tester sırayla.
+    async fn team(&mut self, task: &str) {
+        let task = task.trim();
+        if task.is_empty() {
+            print_warning("Kullanım: /team <görev>");
+            return;
+        }
+        let mut summary = String::new();
+        for (name, template) in crate::agents::TEAM_STEPS {
+            print_info(&format!("/team adımı: {name}"));
+            let mut prompt = template.replace("{t}", task);
+            if !summary.is_empty() {
+                let head: String = summary.chars().take(1500).collect();
+                prompt.push_str(&format!("\n\nÖNCEKİ ADIM ÖZETİ:\n{head}"));
+            }
+            if !self.run_with_agent(name, &prompt).await {
+                return;
+            }
+            summary = self
+                .session
+                .as_ref()
+                .map(crate::agents::last_assistant_text)
+                .unwrap_or_default();
+        }
     }
 
     /// `/iterate <hedef> | devam | durum`: tur tur iterasyon döngüsü.
@@ -901,7 +969,14 @@ v{ver} Sürüm Notları:"
             "/task" => crate::workflow::task(&self.workspace, &arg),
             "/progress" => crate::workflow::progress(&self.workspace, &arg),
             "/iterate" => self.iterate(&arg).await,
-            c if PHASE4_COMMANDS.contains(&c) => print_warning(&phase4_message(c)),
+            "/agent" => crate::agents::handle_agent(&arg, session),
+            "/agents" => crate::agents::handle_agents(&arg, session),
+            "/team" => self.team(&arg).await,
+            "/update" => {
+                if update() {
+                    return Flow::Exit;
+                }
+            }
             _ => print_warning(&unknown_command_message(&typed)),
         }
         Flow::Continue
@@ -1013,8 +1088,7 @@ mod tests {
     }
 
     #[test]
-    fn phase4_and_unknown_messages() {
-        assert!(phase4_message("/skills").contains("Faz 4'te"));
+    fn unknown_message_and_all_commands_handled() {
         assert!(unknown_command_message("/xyz").starts_with("Bilinmeyen komut: '/xyz'."));
         for (cmd, _) in crate::commands::COMMAND_ALIASES {
             let handled = matches!(
@@ -1072,8 +1146,12 @@ mod tests {
                     | "/ssh"
                     | "/iterate"
                     | "/iterasyon"
+                    | "/agent"
+                    | "/agents"
+                    | "/team"
+                    | "/update"
             );
-            assert!(handled || PHASE4_COMMANDS.contains(cmd), "{cmd}");
+            assert!(handled, "{cmd}");
         }
         assert!(HELP_TEXT.contains("/exit         - Çıkış"));
     }

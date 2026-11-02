@@ -1,5 +1,6 @@
 //! Satır tabanlı etkileşimli arayüz (Python `repl.py`, `ui.py`, `interrupt.py`).
 
+pub mod agents;
 pub mod catalog_cmds;
 pub mod commands;
 pub mod docs;
@@ -14,6 +15,7 @@ pub mod repl;
 pub mod shell;
 pub mod ssh_cmds;
 pub mod ui;
+pub mod updater;
 pub mod workflow;
 
 pub use oneshot::{run_agent_once, AgentOnce};

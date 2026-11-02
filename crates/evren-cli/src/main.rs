@@ -422,6 +422,30 @@ impl TermsUi for CliTermsUi {
     }
 }
 
+/// `evren update`: en son sürümü çeker, kurar ve (isteğe bağlı) yeniden başlatır.
+fn cmd_update(no_restart: bool) -> ExitCode {
+    use evren_tui::updater;
+    print_info(&updater::source_line());
+    print_info(updater::SPINNER_TEXT);
+    let (ok, msg) = updater::perform_update();
+    if !ok {
+        print_error(&format!("Güncelleme başarısız: {msg}"));
+        return ExitCode::from(1);
+    }
+    if updater::update_is_deferred() {
+        print_success(&msg);
+    } else {
+        print_success("Güncelleme tamamlandı.");
+        if !no_restart {
+            print_info("CLI yeni sürümle yeniden başlatılıyor...");
+            let err = updater::restart_process();
+            print_error(&err);
+            return ExitCode::from(1);
+        }
+    }
+    ExitCode::SUCCESS
+}
+
 fn not_ported() -> ExitCode {
     print_error(texts::NOT_PORTED_YET);
     ExitCode::from(1)
@@ -827,6 +851,7 @@ async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
             })
         }
         Some(Command::Ssh { args }) => Ok(evren_tui::ssh_cmds::cli(&workspace, &config, &args)),
+        Some(Command::Update { no_restart }) => Ok(cmd_update(no_restart)),
         None => {
             config.require_api_key()?;
             let opts = evren_tui::ReplOptions {

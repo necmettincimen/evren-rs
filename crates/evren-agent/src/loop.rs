@@ -138,6 +138,11 @@ impl AgentSession {
         max_steps: Option<u32>,
         route: bool,
     ) -> String {
+        let agent_def = self.active_agent_def();
+        let max_steps = match (&agent_def, max_steps, self.max_steps) {
+            (Some(a), None, None) => Some(a.max_steps),
+            _ => max_steps,
+        };
         let explicit_steps = max_steps.is_some() || self.max_steps.is_some();
         let max_steps = max_steps
             .or(self.max_steps)
@@ -194,6 +199,10 @@ impl AgentSession {
             .push(json!({"role": "user", "content": prompt}));
 
         let session_model = self.model.clone();
+        if let Some(agent) = agent_def.as_ref().filter(|a| !a.model.is_empty()) {
+            // Yönlendirmenin ödünç modelleri gibi sonda geri alınır.
+            self.set_model(&agent.model);
+        }
         self.trace_task_begin(&cleaned, mode);
 
         let outcome = match self.prepare_phase(route, mode, &cleaned, &prompt).await {
@@ -483,6 +492,36 @@ impl AgentSession {
         Ok((Some(text), reads))
     }
 
+    /// `/agent` ile seçilen ana ajan.
+    fn active_agent_def(&self) -> Option<crate::agent_library::AgentDef> {
+        crate::agent_library::active_agent(&self.workspace_root, &self.config)
+    }
+
+    /// Duyurulan araçları ana ajanın listesiyle sınırlar (boş kalırsa hepsi).
+    fn agent_tools(&self, tools: Vec<Value>) -> Vec<Value> {
+        let Some(allowed) = self.active_agent_def().and_then(|a| a.tools) else {
+            return tools;
+        };
+        if allowed.is_empty() {
+            return tools;
+        }
+        let kept: Vec<Value> = tools
+            .iter()
+            .filter(|t| {
+                t.get("function")
+                    .and_then(|f| f.get("name"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|n| allowed.iter().any(|a| a == n))
+            })
+            .cloned()
+            .collect();
+        if kept.is_empty() {
+            tools
+        } else {
+            kept
+        }
+    }
+
     /// `delegate` aracı: salt-okuma alt ajan turu, özet metni döner.
     async fn run_delegate(&mut self, args: &Value) -> Result<String, Cancelled> {
         let task = args
@@ -504,16 +543,47 @@ impl AgentSession {
             Some(_) => i64::from(DELEGATE_DEFAULT_STEPS),
         };
         let agent_name = match args.get("agent") {
-            None | Some(Value::Null) => "researcher".to_string(),
-            Some(v) => py_scalar(v),
+            None | Some(Value::Null) => String::new(),
+            Some(v) => py_scalar(v).trim().to_string(),
         };
+        let agent_name = if agent_name.is_empty() {
+            "researcher".to_string()
+        } else {
+            agent_name
+        };
+        let mut steps = steps;
+        let mut adef = None;
         if agent_name != "researcher" {
-            return Ok(format!(
-                "HATA: delegate için '{agent_name}' adlı alt ajan bulunamadı."
-            ));
+            let Some(def) =
+                crate::agent_library::get_agent(&agent_name, &self.workspace_root, &self.config)
+            else {
+                return Ok(format!(
+                    "HATA: delegate için '{agent_name}' adlı alt ajan bulunamadı."
+                ));
+            };
+            let steps_given = match args.get("max_steps") {
+                None | Some(Value::Null) => false,
+                Some(Value::String(s)) => !s.is_empty(),
+                Some(_) => true,
+            };
+            if !steps_given {
+                steps = i64::from(def.max_steps);
+            }
+            adef = Some(def);
         }
         let steps = steps.clamp(1, i64::from(DELEGATE_MAX_STEPS)) as u32;
-        let instruction = DELEGATE_INSTRUCTION.replace("{task}", &task);
+        // Tanımın araçları; `delegate` asla.
+        let allowed_tools = adef.as_ref().and_then(|d| d.tools.as_ref()).map(|tools| {
+            tools
+                .iter()
+                .filter(|t| *t != "delegate")
+                .cloned()
+                .collect::<std::collections::HashSet<String>>()
+        });
+        let mut instruction = DELEGATE_INSTRUCTION.replace("{task}", &task);
+        if let Some(def) = adef.as_ref().filter(|d| !d.prompt.is_empty()) {
+            instruction = format!("{}\n\n{instruction}", def.prompt);
+        }
 
         let saved_messages = std::mem::take(&mut self.messages);
         let saved_model = self.model.clone();
@@ -527,14 +597,21 @@ impl AgentSession {
             .cloned()
             .unwrap_or_else(|| json!({"role": "system", "content": self.system_prompt}));
         self.messages = vec![system, json!({"role": "user", "content": instruction})];
-        if !self.config.executor_thinking() {
+        if let Some(def) = &adef {
+            if !def.model.is_empty() {
+                self.set_model(&def.model);
+            }
+            self.thinking = Some(def.thinking);
+        } else if !self.config.executor_thinking() {
             self.thinking = Some(false);
         }
+        self.delegate_tools = allowed_tools;
         self.info(format!(
             "Alt ajan {agent_name} ({steps} adım, salt-okuma): {}",
             clip_chars(&task, 100)
         ));
         let result = Box::pin(self.run_steps(steps, Mode::Ask, 0, 0)).await;
+        self.delegate_tools = None;
         self.messages = saved_messages;
         self.set_model(&saved_model);
         self.thinking = saved_thinking;
@@ -874,6 +951,15 @@ impl AgentSession {
         let mut tools = schema_with_roots(tools_for_mode(mode, true, false));
         if let Some(role) = &self.role {
             tools = role.advertised(tools);
+        }
+        tools = self.agent_tools(tools);
+        if let Some(allowed) = &self.delegate_tools {
+            tools.retain(|t| {
+                t.get("function")
+                    .and_then(|f| f.get("name"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|n| n != "delegate" && allowed.contains(n))
+            });
         }
         let tool_choice = if self.listing_done || self.guard.loop_blocks >= LOOP_BLOCK_LIMIT {
             Some(Value::String("none".into()))

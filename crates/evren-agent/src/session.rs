@@ -173,6 +173,8 @@ pub struct AgentSession {
     pub(crate) tool_ctx: Arc<ToolContext>,
     /// `--role` / `--profile` ile seçilen rol profili.
     pub(crate) role: Option<RoleProfile>,
+    /// Araç listeli alt ajan (`delegate`) çalışırken duyurulan araçlar.
+    pub(crate) delegate_tools: Option<std::collections::HashSet<String>>,
     /// `--task-ref` (iz kaydına yazılır).
     pub(crate) task_ref: String,
     /// `/add` ile eklenen ve her göreve eklenen dosyalar (`/clear` boşaltır).
@@ -250,6 +252,7 @@ impl AgentSession {
             cancel,
             tool_ctx,
             role: None,
+            delegate_tools: None,
             task_ref: String::new(),
             active_context_files: BTreeSet::new(),
         }

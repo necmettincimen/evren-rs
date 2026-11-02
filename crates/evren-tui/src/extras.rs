@@ -120,28 +120,12 @@ pub fn git(root: &Path, args: &[&str]) -> (i32, String) {
 // /rol
 // --------------------------------------------------------------------------- //
 
-fn settings_path(root: &Path) -> PathBuf {
-    get_evren_dir(root).join("settings.json")
-}
-
 fn load_settings(root: &Path) -> Map<String, Value> {
-    std::fs::read_to_string(settings_path(root))
-        .ok()
-        .and_then(|t| serde_json::from_str::<Value>(t.trim_start_matches('\u{feff}')).ok())
-        .and_then(|v| match v {
-            Value::Object(m) => Some(m),
-            _ => None,
-        })
-        .unwrap_or_default()
+    evren_agent::agent_library::load_settings(root)
 }
 
 fn save_settings(root: &Path, data: &Map<String, Value>) {
-    let path = settings_path(root);
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let text = serde_json::to_string_pretty(data).unwrap_or_else(|_| "{}".into());
-    let _ = std::fs::write(path, text);
+    let _ = evren_agent::agent_library::save_settings(root, data);
 }
 
 pub fn role(session: &mut AgentSession, arg: &str) {
