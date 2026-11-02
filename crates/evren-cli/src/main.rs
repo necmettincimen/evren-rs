@@ -708,6 +708,7 @@ async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
                 }
             })
         }
+        Some(Command::Ssh { args }) => Ok(evren_tui::ssh_cmds::cli(&workspace, &config, &args)),
         None => {
             config.require_api_key()?;
             let opts = evren_tui::ReplOptions {

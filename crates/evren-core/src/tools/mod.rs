@@ -20,6 +20,7 @@ pub mod patch;
 pub mod proc;
 pub mod registry;
 pub mod roots;
+pub mod ssh;
 pub mod web_fetch;
 
 use std::path::{Path, PathBuf};
@@ -278,6 +279,38 @@ pub fn command_request(shown: &str) -> ApprovalRequest {
         proposal: None,
         warning: Some(format!(
             "Ajan terminal komutu çalıştırmak istiyor:\n  > {shown}"
+        )),
+    }
+}
+
+/// `request_approval("ssh_run", alias=..., shown=...)`.
+pub fn ssh_run_request(alias: &str, shown: &str) -> ApprovalRequest {
+    ApprovalRequest {
+        kind: ApprovalKind::SshRun,
+        ui_kind: "ssh",
+        title: format!("'{alias}' sunucusunda bu komutun çalıştırılmasına izin veriyor musunuz?"),
+        detail: format!("[{alias}] {shown}"),
+        default_yes: false,
+        proposal: None,
+        warning: Some(format!(
+            "Ajan uzak sunucuda komut çalıştırmak istiyor:
+  [{alias}] > {shown}"
+        )),
+    }
+}
+
+/// `request_approval("ssh_write", alias=..., remote_path=..., size=...)`.
+pub fn ssh_write_request(alias: &str, remote_path: &str, size: usize) -> ApprovalRequest {
+    ApprovalRequest {
+        kind: ApprovalKind::SshWrite,
+        ui_kind: "ssh",
+        title: format!("'{alias}:{remote_path}' uzak dosyası yazılsın mı?"),
+        detail: format!("[{alias}] {remote_path} ({size} karakter)"),
+        default_yes: false,
+        proposal: None,
+        warning: Some(format!(
+            "Ajan uzak sunucuda dosya yazmak istiyor:
+  [{alias}] > {remote_path} ({size} karakter)"
         )),
     }
 }

@@ -801,7 +801,7 @@ fn tool_run_command_echo() {
 fn huge_blob_is_not_embedded() {
     let text = "x".repeat(200_000);
     let ws = workspace();
-    let result = spill_long_output(&text, Some(ws.path()), "cmd");
+    let result = spill_long_output(&text, Some(ws.path()), "cmd", "");
     let saved: Vec<_> = std::fs::read_dir(ws.path().join(".evren").join("tmp"))
         .unwrap()
         .flatten()
@@ -814,8 +814,8 @@ fn huge_blob_is_not_embedded() {
     assert_eq!(std::fs::read_to_string(saved[0].path()).unwrap(), text);
     assert!(!result.contains(&"x".repeat(100)));
     assert!(result.len() < 1000);
-    assert!(result.contains("200000 karakter"), "{result}");
-    assert!(result.contains("1 satır"));
+    assert!(result.contains("200000 karakter, 1 satır"), "{result}");
+    assert!(result.contains("tek karakterin tekrarı ('x')"));
 }
 
 #[test]
@@ -827,15 +827,19 @@ fn medium_output_keeps_head_and_tail() {
     assert!(text.chars().count() > 8000);
     assert!(text.chars().count() < BIG_OUTPUT_CHARS);
     let ws = workspace();
-    let result = spill_long_output(&text, Some(ws.path()), "cmd");
+    let result = spill_long_output(&text, Some(ws.path()), "cmd", "");
     assert!(result.contains("satır 0"));
     assert!(result.contains("satır 1999"));
     assert!(result.contains("karakter kırpıldı"));
+    assert!(result.contains("[EVREN] Tam çıktı (2000 satır)"));
 }
 
 #[test]
 fn short_output_untouched() {
-    assert_eq!(spill_long_output("kısa çıktı", None, "cmd"), "kısa çıktı");
+    assert_eq!(
+        spill_long_output("kısa çıktı", None, "cmd", ""),
+        "kısa çıktı"
+    );
 }
 
 #[test]

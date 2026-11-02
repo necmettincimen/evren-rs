@@ -80,7 +80,6 @@ EVREN CLI Komutları:
 
 /// Faz 4'e kalan komutlar (beceriler, takip, SSH, ekip, güncelleme).
 const PHASE4_COMMANDS: &[&str] = &[
-    "/ssh",
     "/iterate",
     "/iterasyon",
     "/agent",
@@ -790,6 +789,7 @@ v{ver} Sürüm Notları:"
                 }
             }
             "/skills" => catalog_cmds::skills(session, &arg),
+            "/ssh" => crate::ssh_cmds::repl(&self.workspace, session.config(), &arg),
             "/skill" | "/apply" | "/diagnose" | "/template" | "/playbook" => {
                 let prompt = match cmd.as_str() {
                     "/diagnose" => catalog_cmds::diagnose(&arg),
@@ -977,6 +977,7 @@ mod tests {
                     | "/diagnose"
                     | "/template"
                     | "/playbook"
+                    | "/ssh"
             );
             assert!(handled || PHASE4_COMMANDS.contains(cmd), "{cmd}");
         }

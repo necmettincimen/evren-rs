@@ -11,6 +11,7 @@ pub mod markdown;
 pub mod oneshot;
 pub mod repl;
 pub mod shell;
+pub mod ssh_cmds;
 pub mod ui;
 pub mod workflow;
 

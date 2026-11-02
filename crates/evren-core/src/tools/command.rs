@@ -19,7 +19,7 @@ pub const TIMEOUT_EXIT_CODE: i32 = 124;
 pub const OUTPUT_HEAD_CHARS: usize = 6000;
 pub const OUTPUT_TAIL_CHARS: usize = 2000;
 /// Bu boyutun üstündeki çıktı bağlama gömülmez, dosyaya yazılır (`spill_long_output`).
-pub const BIG_OUTPUT_CHARS: usize = 50_000;
+pub const BIG_OUTPUT_CHARS: usize = 100_000;
 
 pub const CHECK_DEFAULT_WAIT: i64 = 20;
 pub const CHECK_MAX_WAIT: i64 = 300;
@@ -61,37 +61,78 @@ pub fn truncate_output(text: &str) -> String {
     format!("{head}\n... [{dropped} karakter kırpıldı] ...\n{tail}")
 }
 
-/// Uzun çıktıyı bağlama gömmek yerine `.evren/tmp/<prefix>-<zaman>.txt` dosyasına
-/// yazar ve kısa bir özet döner; orta boy çıktı baş/kuyruk ile kırpılır.
-pub fn spill_long_output(text: &str, root: Option<&Path>, prefix: &str) -> String {
+/// Gövdesinde bilgi taşımayan dev çıktı için tek satırlık boyut özeti.
+fn single_line_summary(text: &str) -> String {
+    let n = char_len(text);
+    let lines = text.matches('\n').count() + 1;
+    let stripped = text.trim();
+    if stripped.is_empty() {
+        return format!("[EVREN] Çıktı {n} karakter, {lines} satır (boşluk).");
+    }
+    let first = crate::output_summary::splitlines(stripped)
+        .first()
+        .copied()
+        .unwrap_or("");
+    let distinct: std::collections::HashSet<char> = stripped.chars().collect();
+    if distinct.len() <= 2 {
+        return format!(
+            "[EVREN] Çıktı {n} karakter, {lines} satır; gövde tek karakterin tekrarı ('{}'), bağlama gömülmedi.",
+            take_chars(first, 1)
+        );
+    }
+    format!(
+        "[EVREN] Çıktı {n} karakter, {lines} satır; gövde bağlama gömülmedi (ilk satır: '{}').",
+        take_chars(first, 80)
+    )
+}
+
+/// Uzun çıktı (Python `ssh_ops.spill_long_output`): `.evren/tmp/<label>-<zaman>.txt`
+/// dosyasına kaydedilir; modele türe duyarlı özet ya da baş/kuyruk görünümü ile
+/// "tabloyu yeniden yazma" notu gider. Kısa çıktı olduğu gibi döner.
+pub fn spill_long_output(text: &str, root: Option<&Path>, label: &str, command: &str) -> String {
     let n = char_len(text);
     if n <= OUTPUT_HEAD_CHARS + OUTPUT_TAIL_CHARS {
         return text.to_string();
     }
-    if n < BIG_OUTPUT_CHARS {
-        return truncate_output(text);
-    }
-    let Some(root) = root else {
-        return truncate_output(text);
-    };
-    let dir = root.join(".evren").join("tmp");
-    if std::fs::create_dir_all(&dir).is_err() {
-        return truncate_output(text);
-    }
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S-%f").to_string();
-    let path = dir.join(format!("{prefix}-{stamp}.txt"));
-    if std::fs::write(&path, text).is_err() {
-        return truncate_output(text);
-    }
     let lines = text.matches('\n').count() + 1;
-    let rel = path
-        .strip_prefix(root)
-        .unwrap_or(&path)
-        .to_string_lossy()
-        .replace('\\', "/");
+    let saved = root.and_then(|root| {
+        let dir = root.join(".evren").join("tmp");
+        std::fs::create_dir_all(&dir).ok()?;
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S-%f").to_string();
+        let path = dir.join(format!("{label}-{stamp}.txt"));
+        std::fs::write(&path, text).ok()?;
+        Some(
+            path.strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/"),
+        )
+    });
+    let place = match &saved {
+        Some(rel) => format!(" ve {rel} dosyasına kaydedildi"),
+        None => String::new(),
+    };
+    let mut view = truncate_output(text);
+    match crate::output_summary::summarize_output(text, command) {
+        Some(summary) if char_len(&summary) < char_len(&view) => {
+            view = format!("[EVREN] Çıktı özetlendi ({lines} satır).\n{summary}");
+        }
+        _ if n > BIG_OUTPUT_CHARS => {
+            return format!(
+                "{}\n[EVREN] Tam çıktı kullanıcının terminalinde gösterildi{place}. Gövdeyi yanıtında \
+                 yeniden yazma; soru yalnızca boyut/karakter sayısıysa yukarıdaki sayıyı kullan ve hemen bitir.{}",
+                single_line_summary(text),
+                if saved.is_some() { " Gerekirse view_file ile dosyadan aralık oku." } else { "" }
+            );
+        }
+        _ => {}
+    }
     format!(
-        "[Çıktı çok uzun ({n} karakter, {lines} satır); canlı olarak gösterildi ve '{rel}' dosyasına kaydedildi. \
-         Gerekirse find_files(pattern=\"{rel}\", query=...) ya da view_file ile ilgili bölümü oku.]"
+        "{view}\n[EVREN] Tam çıktı ({lines} satır) kullanıcının terminalinde gösterildi{place}. \
+         Listeyi/tabloyu yanıtında yeniden yazma. Görev listeleme/gösterme ise iş bitti: ek analiz \
+         komutu çalıştırmadan, gördüğün kısma dayanarak 1-3 cümlelik kısa özetle hemen bitir. \
+         Yalnızca kullanıcı açıkça analiz/süzme istediyse komutu süzerek (grep/awk/jsonpath) yeniden çalıştır{}",
+        if saved.is_some() { " veya view_file ile dosyadan aralık oku." } else { "." }
     )
 }
 
@@ -144,7 +185,7 @@ fn powershell_wrapper_re() -> &'static [Regex; 2] {
     })
 }
 
-fn never_re() -> Regex {
+pub(crate) fn never_re() -> Regex {
     Regex::new(r"\A(?-u:\x00)\z")
         .unwrap_or_else(|_| Regex::new("x").unwrap_or_else(|_| never_fallback()))
 }
@@ -346,7 +387,7 @@ pub fn tool_run_command(
     if !out.is_empty() {
         lines.push(format!(
             "STDOUT:\n{}",
-            spill_long_output(out, Some(&ctx.root()), "cmd")
+            spill_long_output(out, Some(&ctx.root()), "cmd", command)
         ));
     }
     if !err.is_empty() {

@@ -179,8 +179,54 @@ pub fn execute_tool_call(
                 Err(e) => format!("HATA: {e}"),
             }
         }
-        "search_code" | "ask_user" | "delegate" | "ssh_run" | "ssh_read_file"
-        | "ssh_write_file" | "describe_image" => {
+        "ssh_list_hosts" => super::ssh::ssh_list_hosts(&ctx.root()),
+        "ssh_run" => {
+            let alias = get_str(&args, "alias");
+            let preset = get_str(&args, "preset").trim();
+            let namespace = args
+                .get("namespace")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty());
+            let (command, shown) = if !preset.is_empty() {
+                match super::ssh::build_preset(preset, namespace) {
+                    Ok(c) => {
+                        let ns = namespace
+                            .map(|n| format!(" namespace={n}"))
+                            .unwrap_or_default();
+                        (c, format!("preset={preset}{ns}"))
+                    }
+                    Err(e) => return format!("HATA: {e}"),
+                }
+            } else {
+                let command = get_str(&args, "command");
+                if command.trim().is_empty() {
+                    return "HATA: ssh_run için 'command' veya 'preset' gerekli.".to_string();
+                }
+                (command.to_string(), command.to_string())
+            };
+            if let Some(denied) =
+                ctx.request_approval(auto_approve, super::ssh_run_request(alias, &shown))
+            {
+                return denied;
+            }
+            super::ssh::ssh_run(ctx, alias, &command, get_int(&args, "timeout_seconds"))
+        }
+        "ssh_read_file" => super::ssh::ssh_read_file(
+            &ctx.root(),
+            get_str(&args, "alias"),
+            get_str(&args, "remote_path"),
+        ),
+        "ssh_write_file" => {
+            let alias = get_str(&args, "alias");
+            let remote_path = get_str(&args, "remote_path");
+            let content = get_str(&args, "content");
+            let req = super::ssh_write_request(alias, remote_path, content.chars().count());
+            if let Some(denied) = ctx.request_approval(auto_approve, req) {
+                return denied;
+            }
+            super::ssh::ssh_write_file(&ctx.root(), alias, remote_path, content)
+        }
+        "search_code" | "ask_user" | "delegate" | "describe_image" => {
             format!("HATA: '{name}' aracı bu sürümde desteklenmiyor.")
         }
         _ => format!("HATA: Tanınmayan araç çağrısı: '{name}'"),

@@ -12,6 +12,7 @@ pub mod git;
 pub mod language;
 pub mod memory;
 pub mod models;
+pub mod output_summary;
 pub mod project_docs;
 pub mod project_scan;
 pub mod redact;
