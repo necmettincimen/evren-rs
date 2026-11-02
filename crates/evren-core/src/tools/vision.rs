@@ -102,46 +102,177 @@ impl VisionSettings {
     }
 }
 
-/// Gerçek HTTP poster: ilk anahtarla `Authorization: Bearer` + `X-API-Key`.
-pub fn http_poster(settings: &VisionSettings, ssl: &SslVerify) -> Poster {
+/// API anahtar kaynağı. Ajan tarafında evren-api `ApiKeyPool` bu arabirimle
+/// bağlanır (evren-core evren-api'ye bağımlı değildir); yoksa [`ListKeys`].
+pub trait KeySource: Send + Sync {
+    /// Kullanılacak anahtar; hazır anahtar yoksa `None`.
+    fn acquire(&self) -> Option<String>;
+    fn report_success(&self, key: &str);
+    /// 429: anahtar soğumaya alınır, sıradaki denenir.
+    fn report_rate_limited(&self, key: &str, retry_after: Option<f64>);
+    /// 401/402/403: anahtar bu süreçte bir daha kullanılmaz.
+    fn report_disabled(&self, key: &str, reason: &str);
+}
+
+/// Havuz bağlanmamışsa yapılandırmadaki anahtarlar sırayla denenir.
+#[derive(Debug, Default)]
+pub struct ListKeys {
+    keys: Vec<String>,
+    skipped: Mutex<Vec<String>>,
+}
+
+impl ListKeys {
+    pub fn new(keys: Vec<String>) -> Self {
+        ListKeys {
+            keys,
+            skipped: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn skip(&self, key: &str) {
+        let mut skipped = self
+            .skipped
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !skipped.iter().any(|k| k == key) {
+            skipped.push(key.to_string());
+        }
+    }
+}
+
+impl KeySource for ListKeys {
+    fn acquire(&self) -> Option<String> {
+        let skipped = self
+            .skipped
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.keys.iter().find(|k| !skipped.contains(k)).cloned()
+    }
+
+    fn report_success(&self, _key: &str) {}
+
+    fn report_rate_limited(&self, key: &str, _retry_after: Option<f64>) {
+        self.skip(key);
+    }
+
+    fn report_disabled(&self, key: &str, _reason: &str) {
+        self.skip(key);
+    }
+}
+
+/// Tek anahtarla yapılan isteğin sonucu.
+#[derive(Debug)]
+pub enum KeyAttempt {
+    Done(Value),
+    /// 429 (isteğe bağlı `Retry-After` saniyesi).
+    RateLimited(Option<f64>, ApiError),
+    /// 401/402/403: anahtar geçersiz ya da kotası bitmiş.
+    Rejected(ApiError),
+    /// Anahtardan bağımsız hata: başka anahtar denenmez.
+    Failed(ApiError),
+}
+
+/// İsteği havuzdaki anahtarlarla sırayla dener (en çok `attempts` kez).
+pub fn with_key_rotation(
+    source: &dyn KeySource,
+    attempts: usize,
+    mut send: impl FnMut(&str) -> KeyAttempt,
+) -> Result<Value, ApiError> {
+    let mut last: Option<ApiError> = None;
+    for _ in 0..attempts.max(1) {
+        let Some(key) = source.acquire() else {
+            break;
+        };
+        match send(&key) {
+            KeyAttempt::Done(v) => {
+                source.report_success(&key);
+                return Ok(v);
+            }
+            KeyAttempt::RateLimited(retry_after, e) => {
+                source.report_rate_limited(&key, retry_after);
+                last = Some(e);
+            }
+            KeyAttempt::Rejected(e) => {
+                source.report_disabled(&key, &e.message);
+                last = Some(e);
+            }
+            KeyAttempt::Failed(e) => return Err(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| ApiError::new("RuntimeError", "Kullanılabilir API anahtarı yok.")))
+}
+
+fn post_once(client: &reqwest::blocking::Client, url: &str, body: &[u8], key: &str) -> KeyAttempt {
+    let resp = match client
+        .post(url)
+        .header("Authorization", format!("Bearer {key}"))
+        .header("X-API-Key", key)
+        .header("Content-Type", "application/json")
+        .body(body.to_vec())
+        .send()
+    {
+        Ok(r) => r,
+        Err(e) => {
+            let kind = if e.is_timeout() {
+                "ReadTimeout"
+            } else {
+                "ConnectError"
+            };
+            return KeyAttempt::Failed(ApiError::new(kind, e.to_string()));
+        }
+    };
+    let status = resp.status().as_u16();
+    if !(200..300).contains(&status) {
+        let err = ApiError::new("HTTPStatusError", format!("HTTP {status} — {url}"));
+        return match status {
+            429 => {
+                let retry_after = resp
+                    .headers()
+                    .get("retry-after")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.trim().parse::<f64>().ok());
+                KeyAttempt::RateLimited(retry_after, err)
+            }
+            401..=403 => KeyAttempt::Rejected(err),
+            _ => KeyAttempt::Failed(err),
+        };
+    }
+    match resp.text() {
+        Ok(text) => match serde_json::from_str(&text) {
+            Ok(v) => KeyAttempt::Done(v),
+            Err(e) => KeyAttempt::Failed(ApiError::new("JSONDecodeError", e.to_string())),
+        },
+        Err(e) => KeyAttempt::Failed(ApiError::new("ReadError", e.to_string())),
+    }
+}
+
+/// Gerçek HTTP poster: `Authorization: Bearer` + `X-API-Key`; anahtar `keys`
+/// kaynağından alınır, 429/401-403'te sıradaki anahtar denenir.
+pub fn http_poster(
+    settings: &VisionSettings,
+    ssl: &SslVerify,
+    keys: Option<Arc<dyn KeySource>>,
+) -> Poster {
     let base = settings.base_url.trim_end_matches('/').to_string();
-    let key = settings.api_keys.first().cloned();
+    let attempts = settings.api_keys.len().max(1);
+    let keys: Arc<dyn KeySource> =
+        keys.unwrap_or_else(|| Arc::new(ListKeys::new(settings.api_keys.clone())));
     let ssl = ssl.clone();
     Arc::new(move |path: &str, payload: &Value, timeout: u64| {
-        let key = key
-            .as_deref()
-            .ok_or_else(|| ApiError::new("RuntimeError", "Kullanılabilir API anahtarı yok."))?;
+        if keys.acquire().is_none() {
+            return Err(ApiError::new(
+                "RuntimeError",
+                "Kullanılabilir API anahtarı yok.",
+            ));
+        }
         let client = super::web_fetch::build_client(timeout, &ssl)
             .map_err(|e| ApiError::new("ConnectError", e))?;
         let body =
             serde_json::to_vec(payload).map_err(|e| ApiError::new("ValueError", e.to_string()))?;
         let url = format!("{base}{path}");
-        let resp = client
-            .post(&url)
-            .header("Authorization", format!("Bearer {key}"))
-            .header("X-API-Key", key)
-            .header("Content-Type", "application/json")
-            .body(body)
-            .send()
-            .map_err(|e| {
-                let kind = if e.is_timeout() {
-                    "ReadTimeout"
-                } else {
-                    "ConnectError"
-                };
-                ApiError::new(kind, e.to_string())
-            })?;
-        let status = resp.status();
-        if !status.is_success() {
-            return Err(ApiError::new(
-                "HTTPStatusError",
-                format!("HTTP {} — {url}", status.as_u16()),
-            ));
-        }
-        let text = resp
-            .text()
-            .map_err(|e| ApiError::new("ReadError", e.to_string()))?;
-        serde_json::from_str(&text).map_err(|e| ApiError::new("JSONDecodeError", e.to_string()))
+        with_key_rotation(keys.as_ref(), attempts, |key| {
+            post_once(&client, &url, &body, key)
+        })
     })
 }
 
@@ -194,7 +325,11 @@ fn image_mime(path: &Path) -> Option<&'static str> {
 
 /// `describe_image`: görseli görü modeline betimletir (metinler aynen çıkarılır).
 pub fn describe_image(ctx: &ToolContext, path: &Path, display: &str) -> String {
-    describe_image_with(path, display, &http_poster(&ctx.vision, &ctx.ssl))
+    describe_image_with(
+        path,
+        display,
+        &http_poster(&ctx.vision, &ctx.ssl, ctx.key_source.clone()),
+    )
 }
 
 /// [`describe_image`] çekirdeği; HTTP katmanı dışarıdan verilir.
@@ -525,7 +660,7 @@ fn start_background_index(root: &Path, post: &Poster) {
 
 /// `search_code` aracı: bağlamın API ayarlarıyla.
 pub fn search_code(ctx: &ToolContext, query: &str) -> String {
-    let post = http_poster(&ctx.vision, &ctx.ssl);
+    let post = http_poster(&ctx.vision, &ctx.ssl, ctx.key_source.clone());
     search_code_with(query, &ctx.root(), ctx.vision.semantic_search, &post)
 }
 
@@ -885,13 +1020,48 @@ mod tests {
     }
 
     #[test]
+    fn key_rotation_skips_rate_limited_and_rejected() {
+        let keys = ListKeys::new(vec!["a".into(), "b".into(), "c".into()]);
+        let mut tried = Vec::new();
+        let res = with_key_rotation(&keys, 3, |key| {
+            tried.push(key.to_string());
+            match key {
+                "a" => KeyAttempt::RateLimited(Some(1.0), ApiError::new("HTTPStatusError", "429")),
+                "b" => KeyAttempt::Rejected(ApiError::new("HTTPStatusError", "401")),
+                _ => KeyAttempt::Done(json!({"ok": key})),
+            }
+        });
+        assert_eq!(res.unwrap(), json!({"ok": "c"}));
+        assert_eq!(tried, vec!["a", "b", "c"]);
+        // Atlanan anahtarlar aynı poster içinde tekrar denenmez.
+        assert_eq!(keys.acquire().as_deref(), Some("c"));
+    }
+
+    #[test]
+    fn key_rotation_stops_on_key_independent_error() {
+        let keys = ListKeys::new(vec!["a".into(), "b".into()]);
+        let mut calls = 0;
+        let err = with_key_rotation(&keys, 2, |_| {
+            calls += 1;
+            KeyAttempt::Failed(ApiError::new("ConnectError", "yok"))
+        })
+        .unwrap_err();
+        assert_eq!((calls, err.kind.as_str()), (1, "ConnectError"));
+        let all_bad = with_key_rotation(&keys, 2, |_| {
+            KeyAttempt::Rejected(ApiError::new("HTTPStatusError", "HTTP 403"))
+        })
+        .unwrap_err();
+        assert_eq!(all_bad.message, "HTTP 403");
+    }
+
+    #[test]
     fn http_poster_without_key_fails_offline() {
         let s = VisionSettings {
             base_url: "http://127.0.0.1:9".into(),
             api_keys: vec![],
             semantic_search: true,
         };
-        let post = http_poster(&s, &SslVerify::Flag(true));
+        let post = http_poster(&s, &SslVerify::Flag(true), None);
         let err = post("/embeddings", &json!({}), 1).unwrap_err();
         assert_eq!(err.kind, "RuntimeError");
         assert_eq!(err.message, "Kullanılabilir API anahtarı yok.");

@@ -204,7 +204,8 @@ impl AgentSession {
                 events.clone(),
                 cancel_slot.clone(),
             )
-            .with_vault(vault.clone()),
+            .with_vault(vault.clone())
+            .with_key_source(client.clone()),
         );
         let compactor = HistoryCompactor::new(
             config.smart_compact_enabled(),

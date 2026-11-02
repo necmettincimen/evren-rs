@@ -899,6 +899,25 @@ impl ApiClient {
     }
 }
 
+/// `search_code` / `describe_image` istekleri sohbetle aynı anahtar havuzunu kullanır.
+impl evren_core::tools::vision::KeySource for ApiClient {
+    fn acquire(&self) -> Option<String> {
+        self.with_pool(|p| p.acquire())
+    }
+
+    fn report_success(&self, key: &str) {
+        self.with_pool(|p| p.report_success(key));
+    }
+
+    fn report_rate_limited(&self, key: &str, retry_after: Option<f64>) {
+        self.with_pool(|p| p.report_rate_limited(key, retry_after));
+    }
+
+    fn report_disabled(&self, key: &str, reason: &str) {
+        self.with_pool(|p| p.report_disabled(key, reason));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

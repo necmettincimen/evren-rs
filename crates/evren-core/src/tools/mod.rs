@@ -130,6 +130,8 @@ pub struct ToolContext {
     /// Oturumun sır kasası: komutlar çalıştırılmadan önce `{{SECRET_n}}`
     /// yer tutucuları açılır, akan ve dönen çıktı yeniden maskelenir.
     pub vault: Option<Arc<Mutex<SecretVault>>>,
+    /// `search_code` / `describe_image` anahtar havuzu (yoksa yapılandırma sırası).
+    pub key_source: Option<Arc<dyn vision::KeySource>>,
 }
 
 impl ToolContext {
@@ -158,6 +160,7 @@ impl ToolContext {
             output: None,
             info: None,
             vault: None,
+            key_source: None,
         }
     }
 
@@ -189,6 +192,11 @@ impl ToolContext {
 
     pub fn with_info(mut self, sink: InfoSink) -> Self {
         self.info = Some(sink);
+        self
+    }
+
+    pub fn with_key_source(mut self, source: Arc<dyn vision::KeySource>) -> Self {
+        self.key_source = Some(source);
         self
     }
 
