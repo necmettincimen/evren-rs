@@ -206,6 +206,18 @@ pub async fn run(
     }
 
     let client = Arc::new(ApiClient::new(config)?);
+    // Havuzda birden çok anahtar varsa kotası en yüksek olan sabitlenir;
+    // şartlar ve kota o anahtarla sorulur.
+    let multi_key = client.with_pool(|p| p.len()) > 1;
+    let best_quota = if multi_key {
+        tokio::time::timeout(Duration::from_secs(5), client.select_best_key(None))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .map(|b| b.quota)
+    } else {
+        None
+    };
     let mut terms_ui = TuiTermsUi;
     let _ = ensure_terms_accepted(
         &client,
@@ -219,16 +231,22 @@ pub async fn run(
     )
     .await;
 
-    let quota = match tokio::time::timeout(Duration::from_secs(5), client.get_quota(None)).await {
-        Ok(data) => {
-            let masked = if client.with_pool(|p| p.len()) > 1 {
+    let data = match best_quota {
+        Some(q) => Some(q),
+        None => tokio::time::timeout(Duration::from_secs(5), client.get_quota(None))
+            .await
+            .ok(),
+    };
+    let quota = match data {
+        Some(data) => {
+            let masked = if multi_key {
                 client.current_key().map(|k| mask_key(&k))
             } else {
                 None
             };
             quota_text(&data, masked)
         }
-        Err(_) => "kontrol ediliyor...".to_string(),
+        None => "kontrol ediliyor...".to_string(),
     };
 
     let (tx, rx) = mpsc::unbounded_channel();
