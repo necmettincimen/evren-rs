@@ -345,7 +345,8 @@ mod tests {
     #[test]
     fn error_codes_match_schema() {
         let s = schema();
-        let want = string_list(&s["x-error-codes"]);
+        // Python 3.12: bad_role/bad_root yalnız `$defs.error_code` içinde (x-error-codes'ta yok).
+        let want = string_list(&s["$defs"]["error_code"]["enum"]);
         let have: Vec<String> = ErrorCode::ALL
             .iter()
             .map(|c| c.as_str().to_owned())

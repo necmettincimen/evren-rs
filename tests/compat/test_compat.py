@@ -6,7 +6,7 @@ dizileri normalize edilip (id, parça sınırları, yol ayracı, sondaki boşluk
 `test_stdio_compat.py` ve `test_stdio_protocol.py`'deki kontroller her iki ikili için koşulur.
 
 Çalıştırma:  python -m pytest tests/compat -q
-Ortam:       EVREN_CLI_ROOT (varsayılan ../evren-cli), EVREN_RS_BIN (varsayılan target/debug/evren[.exe])
+Ortam:       EVREN_CLI_ROOT (varsayılan ../evren-cli; 3.12.0+ gerekir), EVREN_RS_BIN (varsayılan target/debug/evren[.exe])
 """
 
 from __future__ import annotations
@@ -422,7 +422,9 @@ def _headless_json(kind: str, fake_llm: str, tmp_path: Path, args: list[str]) ->
     lines = [ln for ln in out.split("\n") if ln.strip()]
     assert len(lines) == 1, f"[{kind}] json kipinde stdout tek satır olmalı: {out!r}\n{err[-500:]}"
     payload = json.loads(lines[0])
-    assert set(payload) == {"result", "changed_files", "tokens", "exit_code", "model"}
+    assert set(payload) == {
+        "result", "changed_files", "tokens", "exit_code", "model", "outcome", "role", "repeat_blocked",
+    }
     assert payload["exit_code"] == code
     payload["result"] = payload["result"].rstrip()
     payload["changed_files"] = sorted(p.replace("\\", "/") for p in payload["changed_files"])

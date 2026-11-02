@@ -55,9 +55,7 @@
     "unsupported_slash",
     "mention",
     "quota",
-    "internal",
-    "bad_role",
-    "bad_root"
+    "internal"
   ],
   "$defs": {
     "error_code": {
