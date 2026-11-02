@@ -441,6 +441,21 @@ impl AgentSession {
         prompt_frame::build_user_content(frame, extra)
     }
 
+    /// Kullanıcı metnini gizli kasadan geçirir; sınırı aşan yapıştırma
+    /// `.evren/tmp/paste-N.txt` dosyasına yazılıp kısa biçimi döner
+    /// (Python `run_step(compact=True)`).
+    pub fn compact_user_text(&mut self, text: &str) -> String {
+        let masked = self.vault_lock().capture(text);
+        let max_lines = usize::try_from(self.config.paste_max_lines()).unwrap_or(80);
+        let max_chars = usize::try_from(self.config.paste_max_chars()).unwrap_or(6000);
+        let root = self.workspace_root().to_path_buf();
+        let (compact, path) = crate::paste::compact_paste(&masked, &root, max_lines, max_chars);
+        if let Some(path) = path {
+            self.info(crate::paste::paste_info(&masked, &path));
+        }
+        compact
+    }
+
     /// Geçmişe model yanıtı beklemeyen bir kullanıcı notu ekler (`!` kabuk kipi).
     pub fn push_user_message(&mut self, text: &str) {
         self.messages.push(json!({"role": "user", "content": text}));

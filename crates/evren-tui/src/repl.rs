@@ -24,6 +24,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::events::{EventPrinter, StdinPrompter};
 use crate::input::{make_reader, EscWatcher, InputQueue, LineReader, ReadResult, WatchPause};
+use crate::shell;
 use crate::ui::{self, print_error, print_info, print_success, print_warning, thousands};
 
 pub const FORM_INTRO: &str =
@@ -75,16 +76,56 @@ EVREN CLI Komutları:
 
 /// Faz 4'e kalan komutlar (beceriler, takip, SSH, ekip, güncelleme).
 const PHASE4_COMMANDS: &[&str] = &[
-    "/skills", "/apply", "/skill", "/playbook", "/diagnose", "/template", "/track", "/task",
-    "/progress", "/checkpoint", "/blockers", "/check-in", "/decisions", "/ssh", "/iterate",
-    "/iterasyon", "/agent", "/agents", "/team", "/update",
+    "/skills",
+    "/apply",
+    "/skill",
+    "/playbook",
+    "/diagnose",
+    "/template",
+    "/track",
+    "/task",
+    "/progress",
+    "/checkpoint",
+    "/blockers",
+    "/check-in",
+    "/decisions",
+    "/ssh",
+    "/iterate",
+    "/iterasyon",
+    "/agent",
+    "/agents",
+    "/team",
+    "/update",
 ];
 
 /// Faz 3'ün sonraki adımlarında taşınacak çekirdek komutlar.
 const PENDING_COMMANDS: &[&str] = &[
-    "/effort", "/models", "/quota", "/status", "/tokens", "/context", "/compact", "/files",
-    "/add", "/drop", "/rewind", "/run", "/debug", "/steps", "/keys", "/terms", "/doctor",
-    "/rol", "/scan", "/commit", "/review", "/init", "/docs", "/memory", "/language", "/resume",
+    "/effort",
+    "/models",
+    "/quota",
+    "/status",
+    "/tokens",
+    "/context",
+    "/compact",
+    "/files",
+    "/add",
+    "/drop",
+    "/rewind",
+    "/run",
+    "/debug",
+    "/steps",
+    "/keys",
+    "/terms",
+    "/doctor",
+    "/rol",
+    "/scan",
+    "/commit",
+    "/review",
+    "/init",
+    "/docs",
+    "/memory",
+    "/language",
+    "/resume",
 ];
 
 pub fn phase4_message(cmd: &str) -> String {
@@ -140,7 +181,10 @@ impl TermsUi for TuiTermsUi {
                 println!("{}", texts::confirm_no_input(false));
                 false
             }
-            Ok(_) => matches!(line.trim().to_lowercase().as_str(), "y" | "yes" | "evet" | "e"),
+            Ok(_) => matches!(
+                line.trim().to_lowercase().as_str(),
+                "y" | "yes" | "evet" | "e"
+            ),
         }
     }
 }
@@ -381,6 +425,13 @@ impl Repl {
         if text.to_lowercase() == "devam" {
             return self.command("/continue").await;
         }
+        if shell::is_shell_input(&text) {
+            let Some(session) = self.session.as_mut() else {
+                return Flow::Exit;
+            };
+            shell::run_user_shell(&text, session, shell::SHELL_TIMEOUT).await;
+            return Flow::Continue;
+        }
         if text.starts_with('/') {
             return self.command(&text).await;
         }
@@ -388,17 +439,17 @@ impl Repl {
             self.run_turn(Turn::Execute(text)).await;
             return Flow::Continue;
         }
+        let Some(session) = self.session() else {
+            return Flow::Exit;
+        };
         let frame = PromptFrame {
-            brief: text,
+            brief: session.compact_user_text(&text),
             ..PromptFrame::default()
         };
         print_info(&format!(
             "Kalıp API'ye ayrıldı: {}",
             delivery_summary(&frame)
         ));
-        let Some(session) = self.session() else {
-            return Flow::Exit;
-        };
         let content = session.apply_frame(&frame, "", true);
         self.run_turn(Turn::Step(content)).await;
         Flow::Continue
@@ -471,8 +522,10 @@ impl Repl {
                 print_info(&format!("EVREN CLI Sürümü: v{ver}"));
                 let notes = ui::release_notes(20);
                 if !notes.is_empty() {
-                    println!("
-v{ver} Sürüm Notları:");
+                    println!(
+                        "
+v{ver} Sürüm Notları:"
+                    );
                     for note in notes {
                         println!("  • {note}");
                     }
@@ -636,7 +689,10 @@ mod tests {
         assert_eq!(quota_text(&m, None), "10 / 100");
         let m = json!({"remaining_daily_tokens": 12345});
         let m = m.as_object().cloned().unwrap_or_default();
-        assert_eq!(quota_text(&m, Some("ab***yz".into())), "12,345 (anahtar ab***yz)");
+        assert_eq!(
+            quota_text(&m, Some("ab***yz".into())),
+            "12,345 (anahtar ab***yz)"
+        );
     }
 
     #[test]

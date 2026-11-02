@@ -707,6 +707,25 @@ mod tests {
     }
 
     #[test]
+    fn paste_limits_defaults_overrides_and_invalid_values() {
+        let c = cfg(&[]);
+        assert_eq!((c.paste_max_lines(), c.paste_max_chars()), (80, 6000));
+        let c = cfg(&[
+            ("EVREN_PASTE_MAX_LINES", "200"),
+            ("EVREN_PASTE_MAX_CHARS", "20000"),
+        ]);
+        assert_eq!((c.paste_max_lines(), c.paste_max_chars()), (200, 20000));
+        for v in ["abc", "0", "-5", ""] {
+            let c = cfg(&[("EVREN_PASTE_MAX_LINES", v), ("EVREN_PASTE_MAX_CHARS", v)]);
+            assert_eq!(
+                (c.paste_max_lines(), c.paste_max_chars()),
+                (80, 6000),
+                "{v}"
+            );
+        }
+    }
+
+    #[test]
     fn defaults() {
         let c = cfg(&[]);
         assert_eq!(c.base_url(), DEFAULT_BASE_URL);

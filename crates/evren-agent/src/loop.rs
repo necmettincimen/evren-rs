@@ -232,7 +232,7 @@ impl AgentSession {
             self.warning(error.clone());
             return error;
         }
-        let text = self.vault_lock().capture(text);
+        let text = self.compact_user_text(text);
         let goal = self.task_goal.clone();
         let mode = self.mode;
         self.mode = self.pending_mode.unwrap_or(self.mode);

@@ -4,6 +4,7 @@
 
 use std::io::{BufRead, BufReader, Read};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -273,6 +274,16 @@ pub fn run_with_tree_kill(
 pub fn stream_with_tree_kill(
     cmd: &mut Command,
     timeout: Option<Duration>,
+    on_line: impl FnMut(StreamTag, &str),
+) -> std::io::Result<RunOutcome> {
+    stream_with_tree_kill_until(cmd, timeout, &AtomicBool::new(false), on_line)
+}
+
+/// `stream_with_tree_kill`; `stop` kurulunca süreç ağacı öldürülür (Ctrl+C).
+pub fn stream_with_tree_kill_until(
+    cmd: &mut Command,
+    timeout: Option<Duration>,
+    stop: &AtomicBool,
     mut on_line: impl FnMut(StreamTag, &str),
 ) -> std::io::Result<RunOutcome> {
     cmd.stdin(Stdio::null())
@@ -296,7 +307,12 @@ pub fn stream_with_tree_kill(
     let mut timed_out = false;
     let deadline = timeout.map(|t| Instant::now() + t);
 
+    let mut stopped = false;
     while open_streams > 0 {
+        if stop.load(Ordering::Relaxed) {
+            stopped = true;
+            break;
+        }
         let mut wait = Duration::from_millis(200);
         if let Some(d) = deadline {
             let now = Instant::now();
@@ -324,7 +340,7 @@ pub fn stream_with_tree_kill(
         }
     }
 
-    if timed_out {
+    if timed_out || stopped {
         proc.kill_tree();
     }
     let mut code = proc.wait_timeout(Duration::from_secs(5));

@@ -54,7 +54,10 @@ const FOLLOWUP_PHRASES: &[&str] = &[
 
 fn punct_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"[.!?,;]+").unwrap_or_else(|_| Regex::new("^$").unwrap_or_else(|_| unreachable!())))
+    RE.get_or_init(|| {
+        Regex::new(r"[.!?,;]+")
+            .unwrap_or_else(|_| Regex::new("^$").unwrap_or_else(|_| unreachable!()))
+    })
 }
 
 fn approval_re() -> &'static Regex {
@@ -240,7 +243,9 @@ mod tests {
     fn execution_followup_phrases() {
         assert!(is_execution_followup("Yap artık!"));
         assert!(is_execution_followup("onay veriyorum."));
-        assert!(is_execution_followup("Hepsi için onay veriyorum, kabul ediyorum"));
+        assert!(is_execution_followup(
+            "Hepsi için onay veriyorum, kabul ediyorum"
+        ));
         assert!(is_execution_followup("tümüne onay veriyorum"));
         assert!(!is_execution_followup("/exit"));
         assert!(!is_execution_followup("timeout süresini 45 saniyeye çıkar"));

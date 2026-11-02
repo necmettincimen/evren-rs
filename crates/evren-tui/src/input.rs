@@ -10,9 +10,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use reedline::{
-    FileBackedHistory, Prompt, PromptEditMode, PromptHistorySearch, Reedline, Signal,
-};
+use reedline::{FileBackedHistory, Prompt, PromptEditMode, PromptHistorySearch, Reedline, Signal};
 use tokio_util::sync::CancellationToken;
 
 use crate::ui;
@@ -57,10 +55,7 @@ impl Prompt for LabelPrompt {
     fn render_prompt_multiline_indicator(&self) -> Cow<'_, str> {
         Cow::Borrowed("... ")
     }
-    fn render_prompt_history_search_indicator(
-        &self,
-        _search: PromptHistorySearch,
-    ) -> Cow<'_, str> {
+    fn render_prompt_history_search_indicator(&self, _search: PromptHistorySearch) -> Cow<'_, str> {
         Cow::Borrowed("(geçmiş) ")
     }
 }

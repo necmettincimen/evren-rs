@@ -42,7 +42,7 @@ fn range_re() -> &'static Regex {
 }
 
 /// Sabit desenler derlenemezse (olmaz) boş deseni döndürür.
-fn unreachable_regex() -> Regex {
+pub(crate) fn unreachable_regex() -> Regex {
     #[allow(clippy::unwrap_used)]
     Regex::new("").unwrap()
 }

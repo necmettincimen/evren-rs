@@ -156,8 +156,7 @@ pub fn config_line(info: &Map<String, Value>) -> String {
     if let Some((head, _)) = key_source.split_once('(') {
         key_source = head.trim().to_string();
     }
-    let key_part = if !env_file.is_empty() && key_source.to_lowercase() == env_file.to_lowercase()
-    {
+    let key_part = if !env_file.is_empty() && key_source.to_lowercase() == env_file.to_lowercase() {
         ".env".to_string()
     } else {
         let n = short_name(&key_source);
@@ -298,14 +297,12 @@ pub fn print_banner(
 /// Python `repr` benzeri kısa değer gösterimi.
 fn py_repr(v: &Value) -> String {
     match v {
-        Value::String(s) => {
-            if s.contains('\'') && !s.contains('"') {
-                format!("\"{s}\"")
-            } else {
-                format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'"))
-            }
-            .replace('\n', "\\n")
+        Value::String(s) => if s.contains('\'') && !s.contains('"') {
+            format!("\"{s}\"")
+        } else {
+            format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'"))
         }
+        .replace('\n', "\\n"),
         Value::Bool(true) => "True".into(),
         Value::Bool(false) => "False".into(),
         Value::Null => "None".into(),
@@ -386,7 +383,10 @@ pub fn print_tool_result(name: &str, ok: bool, summary: &str) {
             paint("1;32", &format!("✔ {name} tamamlandı:")),
             paint("2", summary)
         ),
-        (true, false) => println!("  {} {summary}", paint("1;31", &format!("✖ {name} hatası:"))),
+        (true, false) => println!(
+            "  {} {summary}",
+            paint("1;31", &format!("✖ {name} hatası:"))
+        ),
         (false, true) => println!("  [+] {name} completed: {summary}"),
         (false, false) => println!("  [X] {name} error: {summary}"),
     }
@@ -471,7 +471,10 @@ pub fn print_diff(text: &str, filename: &str) {
     if color_enabled() {
         let lines: Vec<&str> = text.lines().collect();
         let width = lines.len().to_string().len();
-        println!("{}", paint("1;33", &format!("── Fark Önizleme (Diff): {name} ──")));
+        println!(
+            "{}",
+            paint("1;33", &format!("── Fark Önizleme (Diff): {name} ──"))
+        );
         for (i, line) in lines.iter().enumerate() {
             let body = match diff_color(line) {
                 Some(code) => paint(code, line),
@@ -504,7 +507,10 @@ mod tests {
     #[test]
     fn tool_args_skip_empty_and_sort() {
         let args = json!({"path": "a.txt", "content": "uzun içerik", "flag": false, "x": null});
-        assert_eq!(format_tool_args("write_file", &args), "path='a.txt', content='uzun içerik'");
+        assert_eq!(
+            format_tool_args("write_file", &args),
+            "path='a.txt', content='uzun içerik'"
+        );
     }
 
     #[test]
@@ -521,7 +527,12 @@ mod tests {
         let s = format_tool_args("run_command", &args);
         assert!(s.contains("command='pytest -q'"), "{s}");
         assert!(s.contains("alias='prod'"));
-        for hidden in ["timeout_seconds", "use_python", "run_in_background", "empty"] {
+        for hidden in [
+            "timeout_seconds",
+            "use_python",
+            "run_in_background",
+            "empty",
+        ] {
             assert!(!s.contains(hidden), "{hidden}: {s}");
         }
     }
@@ -592,7 +603,10 @@ mod tests {
 
     #[test]
     fn release_note_cleaned() {
-        assert_eq!(clean_release_note("**Kalın** `kod` not", 56), "Kalın kod not");
+        assert_eq!(
+            clean_release_note("**Kalın** `kod` not", 56),
+            "Kalın kod not"
+        );
         let long = "kelime ".repeat(20);
         let out = clean_release_note(&long, 56);
         assert!(out.ends_with('…'));

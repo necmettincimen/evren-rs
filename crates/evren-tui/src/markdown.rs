@@ -144,7 +144,10 @@ mod tests {
             out.push_str(&s.push(chunk));
         }
         out.push_str(&s.finish());
-        assert!(out.contains("Sonuç:") && out.contains("testler geçti."), "{out}");
+        assert!(
+            out.contains("Sonuç:") && out.contains("testler geçti."),
+            "{out}"
+        );
         assert!(!out.contains("**"), "{out}");
         assert!(out.contains("madde"));
     }
