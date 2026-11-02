@@ -79,17 +79,74 @@ EVREN CLI Komutları:
 ";
 
 /// Faz 4'e kalan komutlar (beceriler, takip, SSH, ekip, güncelleme).
-const PHASE4_COMMANDS: &[&str] = &[
-    "/iterate",
-    "/iterasyon",
-    "/agent",
-    "/agents",
-    "/team",
-    "/update",
-];
+const PHASE4_COMMANDS: &[&str] = &["/agent", "/agents", "/team", "/update"];
 
 pub fn phase4_message(cmd: &str) -> String {
     format!("{cmd} komutu Faz 4'te gelecek; bu sürümde henüz yok.")
+}
+
+impl crate::iteration::IterationHost for Repl {
+    fn clear_history(&mut self) {
+        if let Some(s) = self.session.as_mut() {
+            s.clear_history();
+        }
+    }
+
+    fn mode(&self) -> Mode {
+        self.session
+            .as_ref()
+            .map_or(Mode::Normal, AgentSession::mode)
+    }
+
+    fn set_mode(&mut self, mode: Mode) {
+        if let Some(s) = self.session.as_mut() {
+            s.set_mode(mode);
+        }
+    }
+
+    fn tool_ctx(&self) -> Option<Arc<evren_core::tools::ToolContext>> {
+        self.session.as_ref().map(|s| s.tool_ctx().clone())
+    }
+
+    /// Yönlendirmesiz tur; ESC/Ctrl+C `Interrupted` döner.
+    async fn run_step(
+        &mut self,
+        prompt: &str,
+        max_steps: u32,
+    ) -> Result<String, crate::iteration::Interrupted> {
+        let Some(mut session) = self.session.take() else {
+            return Ok("HATA: oturum yok".into());
+        };
+        let cancel = session.reset_cancel();
+        let watcher = EscWatcher::start(cancel.clone(), self.pause.clone(), self.queue.clone());
+        let text = prompt.to_string();
+        let mut worker = tokio::spawn(async move {
+            let result = session.run_step(&text, Some(max_steps), false).await;
+            (session, result)
+        });
+        let joined = loop {
+            tokio::select! {
+                Some(event) = self.rx.recv() => self.printer.handle(event),
+                res = &mut worker => break res,
+                _ = tokio::signal::ctrl_c() => cancel.cancel(),
+            }
+        };
+        watcher.finish();
+        while let Ok(event) = self.rx.try_recv() {
+            self.printer.handle(event);
+        }
+        self.printer.finish();
+        let (mut session, result) = match joined {
+            Ok(pair) => pair,
+            Err(e) => return Ok(format!("SONUÇ: engel — JoinError: {e}")),
+        };
+        session.save_session();
+        self.session = Some(session);
+        if cancel.is_cancelled() || result.starts_with("İPTAL:") {
+            return Err(crate::iteration::Interrupted);
+        }
+        Ok(result)
+    }
 }
 
 /// REPL başlatma seçenekleri (`evren` argümansız).
@@ -620,6 +677,40 @@ impl Repl {
         self.session = Some(session);
     }
 
+    /// `/iterate <hedef> | devam | durum`: tur tur iterasyon döngüsü.
+    async fn iterate(&mut self, arg: &str) {
+        use crate::iteration::{status_text, IterationRunner, RunnerOptions};
+        if arg.is_empty() {
+            print_info("Kullanım: /iterate <hedef> | /iterate devam | /iterate durum");
+            return;
+        }
+        let lowered = arg.to_lowercase();
+        if matches!(lowered.as_str(), "durum" | "status") {
+            println!("{}", status_text(&self.workspace));
+            return;
+        }
+        let resume = matches!(lowered.as_str(), "devam" | "resume");
+        let goal = if resume { "" } else { arg };
+        let vault = self.session.as_ref().map(AgentSession::vault);
+        let opts = RunnerOptions {
+            item_steps: 40,
+            resume,
+            ..RunnerOptions::default()
+        };
+        match IterationRunner::new(&self.workspace, goal, opts, vault) {
+            Ok(mut runner) => {
+                let state = runner.run(self).await;
+                if state.stopped == "kesildi" {
+                    print_warning("İterasyon durduruldu; '/iterate devam' ile sürdürebilirsiniz.");
+                }
+            }
+            Err(e) => print_warning(&e),
+        }
+        if let Some(session) = self.session.as_mut() {
+            session.clear_history();
+        }
+    }
+
     async fn command(&mut self, text: &str) -> Flow {
         let (typed, arg) = match text.split_once(char::is_whitespace) {
             Some((c, a)) => (c.to_string(), a.trim().to_string()),
@@ -809,6 +900,7 @@ v{ver} Sürüm Notları:"
             "/track" => crate::workflow::track(&self.workspace, &arg),
             "/task" => crate::workflow::task(&self.workspace, &arg),
             "/progress" => crate::workflow::progress(&self.workspace, &arg),
+            "/iterate" => self.iterate(&arg).await,
             c if PHASE4_COMMANDS.contains(&c) => print_warning(&phase4_message(c)),
             _ => print_warning(&unknown_command_message(&typed)),
         }
@@ -978,6 +1070,8 @@ mod tests {
                     | "/template"
                     | "/playbook"
                     | "/ssh"
+                    | "/iterate"
+                    | "/iterasyon"
             );
             assert!(handled || PHASE4_COMMANDS.contains(cmd), "{cmd}");
         }

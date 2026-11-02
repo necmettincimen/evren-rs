@@ -142,8 +142,33 @@ enum Command {
     },
     /// Hata ayıklama
     Debug,
-    /// Yinelemeli geliştirme
-    Iterate,
+    /// Hedefe tur tur ilerle: kontrol → plan → düzelt → doğrula → HANDOFF
+    Iterate {
+        /// İterasyon hedefi
+        goal: Vec<String>,
+        /// En fazla tur (varsayılan 10)
+        #[arg(long, default_value_t = 10)]
+        rounds: u32,
+        /// Kontrol komutu (tekrarlanabilir; varsayılan otomatik)
+        #[arg(long)]
+        check: Vec<String>,
+        /// Madde başına en fazla ajan adımı
+        #[arg(long = "item-steps", default_value_t = 40)]
+        item_steps: u32,
+        /// Son iterasyona kaldığı yerden devam et
+        #[arg(long)]
+        resume: bool,
+        /// Salt-okunur referans klasör (ör. web projesi)
+        #[arg(long = "read-root")]
+        read_root: Vec<PathBuf>,
+        /// Son iterasyonun durumunu göster
+        #[arg(long)]
+        status: bool,
+        #[arg(long, short = 'm')]
+        model: Option<String>,
+        #[arg(long, short = 'w')]
+        workspace: Option<PathBuf>,
+    },
     /// Planlayıcının JSON adım listesini LLM'siz, refleks hızında çalıştır
     Plan {
         plan_file: String,
@@ -599,6 +624,72 @@ async fn cmd_agent(
     Ok(evren_tui::run_agent_once(std::sync::Arc::new(api), config, workspace, task).await)
 }
 
+/// Python `cmd_iterate` argümanları.
+struct IterateArgs {
+    goal: Vec<String>,
+    rounds: u32,
+    check: Vec<String>,
+    item_steps: u32,
+    resume: bool,
+    read_root: Vec<PathBuf>,
+    status: bool,
+    model: Option<String>,
+}
+
+/// `evren iterate`: kontrol → plan → düzelt → doğrula → HANDOFF, tur tur.
+async fn cmd_iterate(
+    config: &Config,
+    workspace: &std::path::Path,
+    args: IterateArgs,
+) -> Result<ExitCode, EvrenError> {
+    if !args.read_root.is_empty() {
+        let mut roots: Vec<PathBuf> = std::env::var_os("EVREN_READ_ROOTS")
+            .map(|v| std::env::split_paths(&v).collect())
+            .unwrap_or_default();
+        roots.retain(|r| !r.as_os_str().is_empty());
+        roots.extend(
+            args.read_root
+                .iter()
+                .map(|r| std::fs::canonicalize(r).unwrap_or_else(|_| r.clone())),
+        );
+        if let Ok(joined) = std::env::join_paths(roots) {
+            std::env::set_var("EVREN_READ_ROOTS", joined);
+        }
+    }
+    if args.status {
+        println!("{}", evren_tui::iteration::status_text(workspace));
+        return Ok(ExitCode::SUCCESS);
+    }
+    let api = client(config)?;
+    let mut ui = CliTermsUi;
+    let terms_ok = ensure_terms_accepted(
+        &api,
+        None,
+        TermsOptions {
+            interactive: true,
+            force: false,
+            silent_ok: true,
+        },
+        &mut ui,
+    )
+    .await;
+    if !terms_ok {
+        return Ok(ExitCode::SUCCESS);
+    }
+    pin_best_key(&api).await;
+    let task = evren_tui::iteration::IterateCli {
+        model: args.model,
+        goal: args.goal.join(" "),
+        opts: evren_tui::iteration::RunnerOptions {
+            checks: args.check,
+            max_rounds: args.rounds,
+            item_steps: args.item_steps,
+            resume: args.resume,
+        },
+    };
+    Ok(evren_tui::iteration::run_cli(std::sync::Arc::new(api), config, workspace, task).await)
+}
+
 async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
     if cli.version {
         println!("evren-cli {}", evren_core::VERSION);
@@ -662,6 +753,33 @@ async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
             max_steps,
         }) => cmd_agent(&config, &workspace, cli.model, prompt, &frame, max_steps).await,
         Some(Command::Terms { force }) => cmd_terms(&config, force).await,
+        Some(Command::Iterate {
+            goal,
+            rounds,
+            check,
+            item_steps,
+            resume,
+            read_root,
+            status,
+            model,
+            workspace: target,
+        }) => {
+            let root = match target {
+                Some(t) => get_workspace_dir(Some(&t)),
+                None => workspace.clone(),
+            };
+            let args = IterateArgs {
+                goal,
+                rounds,
+                check,
+                item_steps,
+                resume,
+                read_root,
+                status,
+                model: model.or(cli.model),
+            };
+            cmd_iterate(&config, &root, args).await
+        }
         Some(Command::Docs {
             docs_action,
             workspace: target,
