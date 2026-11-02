@@ -19,10 +19,12 @@ cargo clippy --all-targets -- -D warnings
 
 ## Kurulum (Windows)
 
-Yeni bilgisayarda önce Rust araç zinciri (GNU hedefi) ve depo:
+Yeni bilgisayarda önce Rust araç zinciri (GNU hedefi), MinGW araçları (`dlltool` için WinLibs)
+ve depo; sonra yeni terminal aç:
 
 ```bash
 winget install --id Rustlang.Rustup -e
+winget install --id BrechtSanders.WinLibs.POSIX.UCRT -e
 rustup default stable-x86_64-pc-windows-gnu
 git clone https://github.com/necmettincimen/evren-rs.git
 ```

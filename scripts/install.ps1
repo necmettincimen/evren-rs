@@ -31,6 +31,11 @@ function Test-PyLauncher([string]$path) {
 }
 
 if (-not $NoBuild) {
+    foreach ($tool in 'cargo', 'dlltool') {
+        if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+            throw "$tool bulunamadı. Kurulum: winget install --id Rustlang.Rustup -e ; winget install --id BrechtSanders.WinLibs.POSIX.UCRT -e ; rustup default stable-x86_64-pc-windows-gnu ; sonra yeni terminal açın."
+        }
+    }
     Write-Host '[*] cargo build --release'
     Push-Location $repo
     try {
