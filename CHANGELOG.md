@@ -5,6 +5,12 @@ Bu projedeki tüm önemli değişiklikler bu dosyada belgelenir.
 Format [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) standardına,
 sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kurallarına dayanır.
 
+## [4.3.5] - 2026-11-03
+
+### Düzeltildi
+- Tekrar kesici: test/derleme komutu, son çalışmadan beri bir dosya değiştiyse (düzeltme sonrası yeniden koşu) tekrar sayılmaz; aynı hata çıktısı yine `AYNI HATA` korumasıyla kesilir.
+- `node --test`, `vitest`, `jest`, `mocha` doğrulama komutu olarak tanınır.
+
 ## [4.3.4] - 2026-11-03
 
 ### Eklendi

@@ -115,7 +115,7 @@ re!(
 );
 re!(
     test_cmd_re,
-    r"(?i)\b(pytest|unittest|dotnet\s+(test|build)|npm\s+(run\s+)?(test|build)|pnpm\s+(run\s+)?test|yarn\s+test|cargo\s+(test|build|check)|go\s+(test|build|vet)|mvn\s+(test|verify)|gradle\w*\s+(test|build)|tsc|compileall|py_compile)\b"
+    r"(?i)\b(pytest|unittest|dotnet\s+(test|build)|npm\s+(run\s+)?(test|build)|pnpm\s+(run\s+)?test|yarn\s+test|cargo\s+(test|build|check)|go\s+(test|build|vet)|mvn\s+(test|verify)|gradle\w*\s+(test|build)|node\s+--test|vitest|jest|mocha|tsc|compileall|py_compile)\b"
 );
 re!(quoted_re, r#""[^"]*"|'[^']*'"#);
 re!(chain_sep_re, r"&&|\|\||;|\|");
@@ -644,6 +644,8 @@ pub struct RepeatGuard {
     pub probe_note: String,
     /// Tekrar kesici: görev boyunca her imzanın sayısı (yazmayla sıfırlanmaz).
     sig_counts: HashMap<String, u32>,
+    /// İmzanın son sayıldığı yazma dönemi (test komutu düzeltmeden sonra sıfırlanır).
+    sig_epochs: HashMap<String, u32>,
     sig_last_out: HashMap<String, u64>,
     pub role_test_runs: u32,
     pub stuck_reason: String,
@@ -656,6 +658,11 @@ pub struct RepeatGuard {
 /// `fn_name + ":" + json.dumps(args, sort_keys=True)`.
 pub fn call_signature(fn_name: &str, args: &Value) -> String {
     format!("{fn_name}:{}", py_dumps(&crate::trace::sort_keys(args)))
+}
+
+/// `run_command:{"command":"node --test ..."}` imzası bir test/derleme doğrulaması mı?
+fn is_verify_signature(signature: &str) -> bool {
+    signature.starts_with("run_command:") && test_cmd_re().is_match(signature)
 }
 
 /// `python -m pytest`, `dotnet test`, `curl host`...: araç, bayrakları değil.
@@ -748,6 +755,13 @@ impl RepeatGuard {
 
     /// Bir imzayı görev boyunca sayar; `block`tan itibaren reddeder, `stuck`ta görevi durdurur.
     fn repeat_breaker(&mut self, signature: &str) -> String {
+        // Doğrulama komutu (test) son çalışmadan beri bir dosya değiştiyse meşru yeniden koşudur;
+        // aynı hata çıktısı ayrıca `after_tool`daki AYNI HATA korumasıyla kesilir.
+        let epoch_moved = self.sig_epochs.insert(signature.to_string(), self.write_epoch)
+            .is_some_and(|e| e != self.write_epoch);
+        if epoch_moved && is_verify_signature(signature) {
+            self.sig_counts.insert(signature.to_string(), 0);
+        }
         let count = self.sig_counts.get(signature).copied().unwrap_or(0) + 1;
         self.sig_counts.insert(signature.to_string(), count);
         let (block, stuck) = self.repeat_limits();
@@ -1060,7 +1074,24 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn test_command_after_edit_is_not_counted_as_repeat() {
+        let mut g = RepeatGuard::new();
+        g.set_role_limits(Some((3, 5)), "");
+        let sig = call_signature("run_command", &json!({"command": "node --test tests/a.test.js"}));
+        for _ in 0..6 {
+            assert!(g.repeat_breaker(&sig).is_empty());
+            g.write_epoch += 1;
+        }
+        // yazma yokken (aynı dönem) gerçek döngü yine kesilir
+        let edit = call_signature("edit_file", &json!({"path": "a.js"}));
+        assert!(g.repeat_breaker(&edit).is_empty());
+        assert!(g.repeat_breaker(&edit).is_empty());
+        assert!(g.repeat_breaker(&edit).contains("repeat_blocked"));
+    }
+
+    #[test]
     fn regexes() {
+        assert!(test_cmd_re().is_match("node --test tests/x.test.js 2>&1 | tail"));
         assert!(command_may_modify_files("git checkout -- a"));
         assert!(command_may_modify_files("echo x > f"));
         assert!(!command_may_modify_files("echo x 2>/dev/null"));
