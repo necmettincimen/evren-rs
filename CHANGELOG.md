@@ -5,6 +5,20 @@ Bu projedeki tüm önemli değişiklikler bu dosyada belgelenir.
 Format [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) standardına,
 sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kurallarına dayanır.
 
+## [4.3.2] - 2026-11-03
+
+### Değişti
+- Planlayıcı modeli varsayılan olarak oturum modeli (`EVREN_PLANNER_MODEL` boşsa). Kullanım
+  loglarında ayrı planlayıcı (deepseek-v4.1-flash) adım başına medyan ~35 sn sürüyor, model
+  geçişlerinin çoğunda prefix önbelleği soğuyordu; büyük brief artık doğrudan uygulanıyor.
+- `EVREN_DEFAULT_MAX_TOKENS` varsayılanı 4096 → 8192: uzun dosya yazımında yanıt tavana
+  takılıp dakikalarca boşa gidiyordu.
+- Model kaydı filo sayfasına göre güncellendi: deepseek-v4.1-flash ve mimo görsel girdi alıyor,
+  `gemma-4-31b` ve `qwen3-vl-30b` eklendi, clef bağlamı 16K. `evren models` açıklamaları yenilendi.
+
+### Kaldırıldı
+- Kayıt sırasına göre rol modeli seçen `default_model_for` ve `Role`.
+
 ## [4.3.1] - 2026-11-02
 
 ### Düzeltildi

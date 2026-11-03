@@ -37,7 +37,7 @@ struct Cli {
     /// Çalışma dizini (varsayılan: geçerli dizin)
     #[arg(long, short = 'w')]
     workspace: Option<PathBuf>,
-    /// Kullanılacak model (varsayılan: EVREN_DEFAULT_MODEL)
+    /// Kullanılacak model (varsayılan: EVREN_DEFAULT_MODEL, yoksa mimo-v2.6-pro)
     #[arg(long, short = 'm')]
     model: Option<String>,
     /// Tek istek çalıştır ve çık (headless)

@@ -43,7 +43,7 @@ pub fn should_route(config: &Config, model: &str, text: &str, tm: &TokenManager)
     if !config.auto_route_enabled() {
         return false;
     }
-    if config.planner_model() == config.executor_model(model) {
+    if config.planner_model(model) == config.executor_model(model) {
         return false;
     }
     if no_plan_re().is_match(text) {

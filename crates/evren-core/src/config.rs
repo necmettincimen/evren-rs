@@ -9,15 +9,17 @@ use std::path::{Path, PathBuf};
 use serde_json::{Map, Value};
 
 use crate::error::EvrenError;
-use crate::models::{self, Role};
+use crate::models;
 use crate::texts;
 
 pub const DEFAULT_BASE_URL: &str = "https://evren-llmapi.ssyz.org.tr/v1";
+/// Kullanım loglarında en düşük gecikmeli ajan modeli (medyan ~6,5 sn);
+/// emekliye ayrılırsa sunucu istekleri deepseek-v4.1-flash'a yönlendirir.
 pub const DEFAULT_MODEL: &str = "mimo-v2.6-pro";
 pub const DEFAULT_FALLBACK_MODEL: &str = "qwen3.8-flash-next";
 pub const DEFAULT_SUMMARY_MODEL: &str = "qwen3.8-flash-next";
 pub const DEFAULT_CONTEXT_BUDGET: i64 = 64_000;
-pub const DEFAULT_MAX_TOKENS: u32 = 4096;
+pub const DEFAULT_MAX_TOKENS: u32 = 8192;
 pub const DEFAULT_TEMPERATURE: f64 = 0.3;
 pub const DEFAULT_MAX_STEPS: u32 = 30;
 pub const API_KEY_PREFIX: &str = "evren_llm_";
@@ -349,10 +351,12 @@ impl Config {
         self.flag("EVREN_AUTO_ROUTE", true)
     }
 
-    pub fn planner_model(&self) -> String {
+    /// Boşsa oturum modeli: ayrı planlayıcı model değiştirip önbelleği
+    /// soğutuyor, yoğun modelde plan adımı dakikalar sürüyordu.
+    pub fn planner_model(&self, session_model: &str) -> String {
         let s = self.get_or("EVREN_PLANNER_MODEL", "").trim().to_owned();
         if s.is_empty() {
-            models::default_model_for(Role::Planner, "deepseek-v4.1-flash")
+            session_model.to_owned()
         } else {
             s
         }
@@ -732,7 +736,7 @@ mod tests {
         assert_eq!(c.default_model(), "mimo-v2.6-pro");
         assert_eq!(c.fallback_model(), "qwen3.8-flash-next");
         assert_eq!(c.fallback_after(), 2);
-        assert_eq!(c.default_max_tokens(), 4096);
+        assert_eq!(c.default_max_tokens(), 8192);
         assert!((c.default_temperature() - 0.3).abs() < 1e-9);
         assert!(c.auto_approve());
         assert_eq!(c.default_max_steps(), 30);
@@ -743,7 +747,7 @@ mod tests {
         assert_eq!(c.ui_theme().unwrap(), "dark");
         assert_eq!(c.reasoning_effort(), Some("low".into()));
         assert_eq!(c.key_min_remaining(), 50_000);
-        assert_eq!(c.planner_model(), "deepseek-v4.1-flash");
+        assert_eq!(c.planner_model("m"), "m");
         assert_eq!(c.executor_model("m"), "m");
         assert!(c.trace_enabled());
         assert_eq!(c.ssl_verify(), SslVerify::Flag(false));

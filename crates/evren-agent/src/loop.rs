@@ -395,7 +395,7 @@ impl AgentSession {
         match mode {
             Mode::Plan => {
                 if self.config.auto_route_enabled() {
-                    let planner = self.config.planner_model();
+                    let planner = self.config.planner_model(&self.model);
                     self.set_model(&planner);
                 }
                 return Ok(());
@@ -414,7 +414,7 @@ impl AgentSession {
         if !should_route(&self.config, &self.model, brief, &self.token_manager) {
             return Ok(());
         }
-        let planner = self.config.planner_model();
+        let planner = self.config.planner_model(&self.model);
         let executor = self.config.executor_model(&self.model);
         let estimated = self.token_manager.estimate_text(brief);
         self.info(format!(

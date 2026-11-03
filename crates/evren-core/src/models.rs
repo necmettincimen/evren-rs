@@ -10,79 +10,55 @@ pub const DEFAULT_CONTEXT_WINDOW: u32 = 128_000;
 pub const THINKING_OFF_UNSAFE_MODELS: [&str; 2] = ["glm-5.3", "zai/glm-5.3-fp8"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Role {
-    Planner,
-    Executor,
-    Summarizer,
-    Vision,
-    Classifier,
-}
-
-impl Role {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Role::Planner => "planner",
-            Role::Executor => "executor",
-            Role::Summarizer => "summarizer",
-            Role::Vision => "vision",
-            Role::Classifier => "classifier",
-        }
-    }
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "planner" => Some(Role::Planner),
-            "executor" => Some(Role::Executor),
-            "summarizer" => Some(Role::Summarizer),
-            "vision" => Some(Role::Vision),
-            "classifier" => Some(Role::Classifier),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModelInfo {
     pub name: &'static str,
-    pub roles: &'static [Role],
     pub context_window: u32,
     pub thinking_off_ok: bool,
     pub vision: bool,
 }
 
-/// Kayıt sırası önemlidir: `default_model_for` ilk eşleşeni döndürür.
-pub const REGISTRY: [ModelInfo; 5] = [
+/// Filo kaydı (evren.ssyz.org.tr/llm-inference). `lookup` alt dize ile
+/// eşlediği için bir ad diğerinin parçası olmamalı.
+pub const REGISTRY: [ModelInfo; 7] = [
+    ModelInfo {
+        name: "deepseek-v4.1-flash",
+        context_window: 1_000_000,
+        thinking_off_ok: true,
+        vision: true,
+    },
     ModelInfo {
         name: "qwen3.8-flash-next",
-        roles: &[Role::Executor, Role::Summarizer, Role::Vision],
         context_window: 256_000,
         thinking_off_ok: true,
         vision: true,
     },
     ModelInfo {
-        name: "deepseek-v4.1-flash",
-        roles: &[Role::Planner, Role::Executor, Role::Summarizer],
-        context_window: 1_000_000,
+        name: "gemma-4-31b",
+        context_window: 256_000,
         thinking_off_ok: true,
-        vision: false,
+        vision: true,
     },
     ModelInfo {
         name: "mimo-v2.6-pro",
-        roles: &[Role::Planner, Role::Executor],
         context_window: 1_000_000,
         thinking_off_ok: true,
-        vision: false,
+        vision: true,
     },
     ModelInfo {
         name: "glm-5.3",
-        roles: &[Role::Planner, Role::Executor],
         context_window: 512_000,
         thinking_off_ok: false,
         vision: false,
     },
     ModelInfo {
+        name: "qwen3-vl-30b",
+        context_window: 256_000,
+        thinking_off_ok: true,
+        vision: true,
+    },
+    ModelInfo {
         name: "clef",
-        roles: &[Role::Classifier],
-        context_window: 8_000,
+        context_window: 16_000,
         thinking_off_ok: true,
         vision: false,
     },
@@ -120,14 +96,6 @@ pub fn supports_vision(model: &str) -> bool {
     lookup(model).map(|m| m.vision).unwrap_or(false)
 }
 
-pub fn default_model_for(role: Role, fallback: &str) -> String {
-    REGISTRY
-        .iter()
-        .find(|m| m.roles.contains(&role))
-        .map(|m| m.name.to_owned())
-        .unwrap_or_else(|| fallback.to_owned())
-}
-
 pub fn is_reasoning_model(model: &str) -> bool {
     REASONING_MODELS.contains(&model)
 }
@@ -144,20 +112,23 @@ pub fn floor_output_tokens(model: &str, requested: u32) -> u32 {
 }
 
 /// `evren models` çıktısındaki öneri açıklamaları (`RECOMMENDED_MODELS`).
-pub const RECOMMENDED_MODELS: [(&str, &str); 10] = [
-    (
-        "qwen3.8-flash-next",
-        "Varsayılan · Hızlı Yanıtlar, Vibe Coding, Yüksek Eşzamanlılık",
-    ),
+pub const RECOMMENDED_MODELS: [(&str, &str); 13] = [
     (
         "deepseek-v4.1-flash",
-        "Kodlama ve Ajan İşleri (1M Bağlam, Hızlı)",
+        "Kod ve Ajan İşleri (1M Bağlam; Yoğun Saatlerde Yavaş)",
     ),
     (
-        "glm-5.3",
-        "Derin Akıl Yürütme ve Çok Adımlı Karmaşık Analiz",
+        "qwen3.8-flash-next",
+        "Hızlı Yanıtlar, Vibe Coding, Yedek Model",
+    ),
+    ("gemma-4-31b", "Düşük Gecikmeli Sohbet ve Görsel Okuma"),
+    ("glm-5.3", "Derin Akıl Yürütme (Yavaş, ~20 tok/s)"),
+    (
+        "mimo-v2.6-pro",
+        "Varsayılan · Uzun Soluklu Ajan (Emekliye Ayrılabilir)",
     ),
     ("auto", "Otomatik Model Yönlendirme"),
+    ("qwen3-vl-30b", "Görsel Akıl Yürütme"),
     ("dots-ocr", "Belge ve Resim Metin Tanıma (OCR)"),
     ("deepseek-ocr-2", "Gelişmiş Belge/Görsel Analizi ve OCR"),
     ("qwen3-asr-1.7b", "Ses Tanıma ve Metne Dönüştürme (ASR)"),
@@ -197,11 +168,9 @@ mod tests {
         assert!(!thinking_off_supported(""));
         assert!(!thinking_off_supported("zai/glm-5.3-fp8"));
         assert!(thinking_off_supported("qwen3.8-flash-next"));
-        assert_eq!(default_model_for(Role::Planner, "x"), "deepseek-v4.1-flash");
-        assert_eq!(
-            default_model_for(Role::Summarizer, "x"),
-            "qwen3.8-flash-next"
-        );
+        assert_eq!(context_window("clef"), 16_000);
         assert!(supports_vision("qwen3.8-flash-next"));
+        assert!(supports_vision("deepseek/deepseek-v4.1-flash"));
+        assert!(!supports_vision("glm-5.3"));
     }
 }
