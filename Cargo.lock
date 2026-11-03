@@ -492,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "evren-agent"
-version = "4.3.2"
+version = "4.3.3"
 dependencies = [
  "chrono",
  "evren-api",
@@ -511,7 +511,7 @@ dependencies = [
 
 [[package]]
 name = "evren-api"
-version = "4.3.2"
+version = "4.3.3"
 dependencies = [
  "evren-core",
  "futures-util",
@@ -525,7 +525,7 @@ dependencies = [
 
 [[package]]
 name = "evren-cli"
-version = "4.3.2"
+version = "4.3.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -549,7 +549,7 @@ dependencies = [
 
 [[package]]
 name = "evren-core"
-version = "4.3.2"
+version = "4.3.3"
 dependencies = [
  "chrono",
  "dirs",
@@ -565,7 +565,7 @@ dependencies = [
 
 [[package]]
 name = "evren-protocol"
-version = "4.3.2"
+version = "4.3.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -573,7 +573,7 @@ dependencies = [
 
 [[package]]
 name = "evren-tui"
-version = "4.3.2"
+version = "4.3.3"
 dependencies = [
  "chrono",
  "crossterm",

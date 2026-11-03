@@ -121,6 +121,9 @@ pub fn execution_context_block(workspace_root: &Path, config: &Config) -> String
          run_command, EVREN CLI sürecinin çalıştığı makinede çalışır; SSH bağlantısı kurmaz.\n\
          Windows'ta PowerShell sözdizimi gerekiyorsa run_command'a use_powershell=true ver; \
          aksi halde komutu bu kabuğun sözdizimiyle yaz (Git Bash'te Unix yolları: /d/proje veya göreli yol).\n\
+         Geçici/çıktı dosyaları için çalışma alanının dışında bir dizin kullan; Git Bash'te `%TEMP%` açılmaz \
+         ve çalışma alanında gerçek bir `%TEMP%` klasörü oluşur: `$TEMP`, `${{TMPDIR:-/tmp}}` ya da `mktemp -d` kullan. \
+         Derleme çıktısını (`dotnet build -o` vb.) repo içine bırakma.\n\
          CLI bir sunucunun terminalinde çalışıyorsa o sunucu yerel makinedir.\n\
          Son yanıt: istenmedikçe en fazla ~12 satır; 'kısa' veya madde sayısı verildiyse ona uy.",
         platform_system(),

@@ -5,6 +5,13 @@ Bu projedeki tüm önemli değişiklikler bu dosyada belgelenir.
 Format [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) standardına,
 sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kurallarına dayanır.
 
+## [4.3.3] - 2026-11-03
+
+### Düzeltildi
+- Git Bash'te `%TEMP%` açılmadığı için ajan `dotnet build -o %TEMP%\...` çalıştırınca çalışma alanında
+  gerçek bir `%TEMP%` klasörü oluşuyor ve git'te görünüyordu. Yerel çalıştırma bağlamı artık geçici
+  dosyalar için `$TEMP`/`mktemp -d` kullanmayı, derleme çıktısını repo içine bırakmamayı söylüyor.
+
 ## [4.3.2] - 2026-11-03
 
 ### Değişti
