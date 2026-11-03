@@ -5,6 +5,11 @@ Bu projedeki tüm önemli değişiklikler bu dosyada belgelenir.
 Format [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) standardına,
 sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kurallarına dayanır.
 
+## [4.3.4] - 2026-11-03
+
+### Eklendi
+- `evren update --check`: kaynak klonunu değiştirmeden yeni commit var mı bildirir.
+
 ## [4.3.3] - 2026-11-03
 
 ### Düzeltildi

@@ -188,6 +188,38 @@ fn git_branch(root: &Path) -> String {
     }
 }
 
+/// `evren update --check`: kaynak klonunu çekmeden uzaktaki yeni commit sayısını bildirir.
+pub fn check_update() -> Result<String, String> {
+    let mut root = get_project_root();
+    if !is_git_checkout(&root) {
+        root = get_source_dir();
+    }
+    if !is_git_checkout(&root) {
+        return Ok("Kaynak klonu yok; `evren update` ilk seferde klonlar.".into());
+    }
+    let branch = git_branch(&root);
+    let (code, out) = run(&["git", "fetch", "origin", &branch], Some(&root), Duration::from_secs(60));
+    if code != 0 {
+        return Err(format!("git fetch başarısız oldu:
+{}", out.trim()));
+    }
+    let (code, out) = run(
+        &["git", "rev-list", "--count", "HEAD..FETCH_HEAD"],
+        Some(&root),
+        Duration::from_secs(30),
+    );
+    let behind: u32 = out.trim().lines().last().unwrap_or("0").trim().parse().unwrap_or(0);
+    if code != 0 || behind == 0 {
+        return Ok("Zaten güncel.".into());
+    }
+    let (_, subj) = run(
+        &["git", "log", "-1", "--format=%s", "FETCH_HEAD"],
+        Some(&root),
+        Duration::from_secs(30),
+    );
+    Ok(format!("{behind} yeni commit var: {}", subj.trim().lines().last().unwrap_or("")))
+}
+
 /// Git checkout'u en son sürüme çeker.
 fn pull_checkout(root: &Path) -> Result<String, String> {
     let branch = git_branch(root);

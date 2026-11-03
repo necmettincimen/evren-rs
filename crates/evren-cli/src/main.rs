@@ -124,6 +124,9 @@ enum Command {
     Update {
         #[arg(long)]
         no_restart: bool,
+        /// Yalnız yeni sürüm var mı bak, güncelleme yapma
+        #[arg(long)]
+        check: bool,
     },
     /// Dosyayı yedekten geri al
     Rollback { file: String },
@@ -455,8 +458,20 @@ impl TermsUi for CliTermsUi {
 }
 
 /// `evren update`: en son sürümü çeker, kurar ve (isteğe bağlı) yeniden başlatır.
-fn cmd_update(no_restart: bool) -> ExitCode {
+fn cmd_update(no_restart: bool, check: bool) -> ExitCode {
     use evren_tui::updater;
+    if check {
+        return match updater::check_update() {
+            Ok(msg) => {
+                print_info(&msg);
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                print_error(&e);
+                ExitCode::from(1)
+            }
+        };
+    }
     print_info(&updater::source_line());
     if let Some(warn) = updater::dirty_tree_warning() {
         evren_tui::ui::print_warning(&warn);
@@ -1000,7 +1015,7 @@ async fn run(cli: Cli) -> Result<ExitCode, EvrenError> {
             })
         }
         Some(Command::Ssh { args }) => Ok(evren_tui::ssh_cmds::cli(&workspace, &config, &args)),
-        Some(Command::Update { no_restart }) => Ok(cmd_update(no_restart)),
+        Some(Command::Update { no_restart, check }) => Ok(cmd_update(no_restart, check)),
         None => {
             config.require_api_key()?;
             let opts = evren_tui::ReplOptions {
