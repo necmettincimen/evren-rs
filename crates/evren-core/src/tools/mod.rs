@@ -154,8 +154,8 @@ impl ToolContext {
                 .get("EVREN_PYTHON")
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
-                .unwrap_or("python")
-                .to_string(),
+                .map(str::to_string)
+                .unwrap_or_else(|| default_python().to_string()),
             ssl: config.ssl_verify(),
             vision: vision::VisionSettings::from_config(config),
             background: Mutex::new(BackgroundManager::new()),
@@ -403,3 +403,22 @@ pub fn plan_request(path: &str) -> ApprovalRequest {
 
 #[cfg(test)]
 mod tests;
+
+/// `EVREN_PYTHON` yoksa kullanılacak yorumlayıcı: `python`, yoksa `python3`
+/// (yalnız `python3` kurulu Linux dağıtımları).
+pub fn default_python() -> &'static str {
+    static PY: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+    PY.get_or_init(|| {
+        let ok = std::process::Command::new("python")
+            .arg("-V")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        if ok {
+            "python"
+        } else {
+            "python3"
+        }
+    })
+}

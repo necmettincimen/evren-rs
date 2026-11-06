@@ -12,7 +12,8 @@
 //!   {"op": "commit", "repo": "b", "message": "..."},
 //!   {"op": "push", "repo": "b", "branch": "test", "target": "main", "base": "main", "allow_foreign": false},
 //!   {"op": "agent", "prompt": "...", "repo": "b", "max_steps": 80, "timeout": 1800,
-//!    "kind": "code" | "report" | "docs" | "explore", "inputs": ["reports/ozet.txt"]},
+//!    "kind": "code" | "report" | "docs" | "explore", "inputs": ["reports/ozet.txt"],
+//!    "skills": ["clickup"]},
 //!   {"op": "live_diff", "file": "b/argo/wf.yaml", "live_cmd": "kubectl get ... -o yaml" | "live_ssh": {...}},
 //!   {"op": "parallel", "max_workers": 3, "steps": [...]},
 //!   {"op": "ssh" | "scp" | "http" | "wait", ...}
@@ -1048,6 +1049,9 @@ fn runtime(root: &Path, dry: bool, allow_push: bool, runner: Box<dyn AgentRunner
             .unwrap_or_default()
             .join(".evren")
             .join("slots"),
+        skills_dir: evren_core::catalog::user_skills_dir(&evren_core::project_docs::cli_docs_dir(
+            &evren_core::config::Config::load(),
+        )),
     }
 }
 
@@ -1082,6 +1086,10 @@ fn run_plan_with(
         .and_then(Value::as_array)
         .cloned()
         .ok_or("'steps'")?;
+    agent::validate_skills(
+        &steps,
+        &evren_core::catalog::SkillCatalog::load(&rt.skills_dir),
+    )?;
     let stem = Path::new(plan_path)
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())

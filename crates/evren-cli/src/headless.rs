@@ -96,12 +96,12 @@ pub async fn run(
     tokio::pin!(worker);
     let outcome = loop {
         tokio::select! {
-            Some(ev) = rx.recv() => on_event(ev),
+            Some(ev) = rx.recv() => on_event(ev, json_mode),
             res = &mut worker => break res,
         }
     };
     while let Ok(ev) = rx.try_recv() {
-        on_event(ev);
+        on_event(ev, json_mode);
     }
     // Python: istisna → "HATA: {e}", kod 1 (oturum kaydedilmez).
     let (session, result) = match outcome {
@@ -151,11 +151,18 @@ pub async fn run(
 }
 
 /// Olayları yazar; onay ve sorular varsayılanla cevaplanır.
-fn on_event(ev: AgentEvent) {
+/// Cevap metninin akışı stderr'e yazılsın mı: metin kipinde son cevap zaten
+/// stdout'a yazılır; akış da basılırsa terminalde cevap iki kez görünür ("OKOK").
+fn streams_answer(json_mode: bool) -> bool {
+    json_mode
+}
+
+fn on_event(ev: AgentEvent, json_mode: bool) {
     match ev {
-        // stdout yalnız sonuca ayrılır; akış metni her iki kipte stderr'e gider.
-        AgentEvent::AssistantDelta(t) => eprint!("{t}"),
-        AgentEvent::Assistant(_) => eprintln!(),
+        // stdout yalnız sonuca ayrılır; JSON kipinde akış metni stderr'e gider.
+        AgentEvent::AssistantDelta(t) if streams_answer(json_mode) => eprint!("{t}"),
+        AgentEvent::Assistant(_) if streams_answer(json_mode) => eprintln!(),
+        AgentEvent::AssistantDelta(_) | AgentEvent::Assistant(_) => {}
         AgentEvent::Status(t) | AgentEvent::Info(t) | AgentEvent::Warning(t) => eprintln!("{t}"),
         AgentEvent::Error(t) => eprintln!("[X] {t}"),
         AgentEvent::ToolOutput { line, .. } => eprintln!("{line}"),
@@ -176,5 +183,20 @@ fn on_event(ev: AgentEvent) {
         | AgentEvent::Todos(_)
         | AgentEvent::Usage(_)
         | AgentEvent::RunSummary { .. } => {}
+    }
+}
+
+#[cfg(test)]
+mod print_tests {
+    use super::*;
+
+    /// Regresyon: `evren -p` cevabı hem akışta (stderr) hem sonda (stdout) yazıyordu.
+    #[test]
+    fn text_mode_does_not_stream_answer_twice() {
+        assert!(!streams_answer(false));
+        assert!(streams_answer(true));
+        // Metin kipinde olaylar sessizce yutulur (panik yok).
+        on_event(AgentEvent::AssistantDelta("OK".into()), false);
+        on_event(AgentEvent::Assistant("OK".into()), false);
     }
 }

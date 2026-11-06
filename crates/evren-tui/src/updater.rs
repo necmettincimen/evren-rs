@@ -198,17 +198,31 @@ pub fn check_update() -> Result<String, String> {
         return Ok("Kaynak klonu yok; `evren update` ilk seferde klonlar.".into());
     }
     let branch = git_branch(&root);
-    let (code, out) = run(&["git", "fetch", "origin", &branch], Some(&root), Duration::from_secs(60));
+    let (code, out) = run(
+        &["git", "fetch", "origin", &branch],
+        Some(&root),
+        Duration::from_secs(60),
+    );
     if code != 0 {
-        return Err(format!("git fetch başarısız oldu:
-{}", out.trim()));
+        return Err(format!(
+            "git fetch başarısız oldu:
+{}",
+            out.trim()
+        ));
     }
     let (code, out) = run(
         &["git", "rev-list", "--count", "HEAD..FETCH_HEAD"],
         Some(&root),
         Duration::from_secs(30),
     );
-    let behind: u32 = out.trim().lines().last().unwrap_or("0").trim().parse().unwrap_or(0);
+    let behind: u32 = out
+        .trim()
+        .lines()
+        .last()
+        .unwrap_or("0")
+        .trim()
+        .parse()
+        .unwrap_or(0);
     if code != 0 || behind == 0 {
         return Ok("Zaten güncel.".into());
     }
@@ -217,7 +231,10 @@ pub fn check_update() -> Result<String, String> {
         Some(&root),
         Duration::from_secs(30),
     );
-    Ok(format!("{behind} yeni commit var: {}", subj.trim().lines().last().unwrap_or("")))
+    Ok(format!(
+        "{behind} yeni commit var: {}",
+        subj.trim().lines().last().unwrap_or("")
+    ))
 }
 
 /// Git checkout'u en son sürüme çeker.
@@ -512,6 +529,7 @@ pub fn restart_process() -> String {
     {
         use std::os::unix::process::CommandExt;
         let err = Command::new(&exe).args(&args).exec();
+        #[allow(clippy::needless_return)]
         return err.to_string();
     }
     #[cfg(not(unix))]

@@ -263,3 +263,75 @@ fn push_guard_blocks_foreign_commits() {
         1
     );
 }
+
+fn skills_dir_with_clickup() -> tempfile::TempDir {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(
+        d.path().join("clickup.md"),
+        "---\nname: clickup\ntitle: ClickUp işleri\ndescription: Atanmış işleri çeker\nwhen_to_use: ClickUp geçince\n---\n1. Takım kimliğini al\n2. Görevleri listele\n",
+    )
+    .unwrap();
+    d
+}
+
+#[test]
+fn skills_field_parsed() {
+    let s = step(json!({"op": "agent", "prompt": "x", "skills": ["bitwarden", " clickup "]}));
+    assert_eq!(
+        agent::step_skills(&s).unwrap(),
+        vec!["bitwarden", "clickup"]
+    );
+    assert!(agent::step_skills(&step(json!({"op": "agent"})))
+        .unwrap()
+        .is_empty());
+    assert!(agent::step_skills(&step(json!({"skills": "clickup"}))).is_err());
+    assert!(agent::step_skills(&step(json!({"skills": [1]}))).is_err());
+}
+
+#[test]
+fn unknown_skill_fails_at_plan_start() {
+    let (_t, r) = root();
+    let sk = skills_dir_with_clickup();
+    let mut rt = rt(&r);
+    rt.skills_dir = sk.path().to_path_buf();
+    let plan = r.join("p.json");
+    // Bilinmeyen beceri parallel içinde ve 2. adımda; 1. adım bile çalışmamalı.
+    std::fs::write(
+        &plan,
+        json!({"steps": [
+            {"op": "write", "path": "ilk.txt", "content": "x"},
+            {"op": "parallel", "steps": [{"op": "agent", "prompt": "p", "skills": ["yok-boyle"]}]}
+        ]})
+        .to_string(),
+    )
+    .unwrap();
+    let err = run_plan_with(plan.to_str().unwrap(), &r, false, false, 1, &rt).unwrap_err();
+    assert!(err.contains("yok-boyle"), "{err}");
+    assert!(!r.join("ilk.txt").exists());
+    // Bilinen beceri geçer.
+    std::fs::write(
+        &plan,
+        json!({"steps": [{"op": "agent", "prompt": "p", "skills": ["clickup"]}]}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(
+        run_plan_with(plan.to_str().unwrap(), &r, true, false, 1, &rt),
+        Ok(0)
+    );
+}
+
+#[test]
+fn skill_text_goes_into_prompt() {
+    let sk = skills_dir_with_clickup();
+    let cat = evren_core::catalog::SkillCatalog::load(sk.path());
+    let block = agent::skills_block(&step(json!({"skills": ["clickup"]})), &cat).unwrap();
+    for part in [
+        "ClickUp işleri",
+        "Ne zaman: ClickUp geçince",
+        "1. Takım kimliğini al",
+        "2. Görevleri listele",
+    ] {
+        assert!(block.contains(part), "{part} yok: {block}");
+    }
+    assert!(agent::skills_block(&step(json!({"skills": ["yok"]})), &cat).is_err());
+}

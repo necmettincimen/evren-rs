@@ -52,13 +52,14 @@ fn read(dir: &Path, rel: &str) -> String {
 }
 
 fn python_cmd(code: &str) -> Command {
-    let mut c = Command::new("python");
+    let mut c = Command::new(crate::tools::default_python());
     c.args(["-c", code]);
     c
 }
 
 fn argv(code: &str) -> Vec<String> {
-    vec!["python".to_string(), "-c".to_string(), code.to_string()]
+    let py = crate::tools::default_python();
+    vec![py.to_string(), "-c".to_string(), code.to_string()]
 }
 
 // ============================================================ test_tools.py
@@ -798,7 +799,10 @@ fn tool_run_command_reports_timeout_124() {
     let start = Instant::now();
     let result = tool_run_command(
         &ctx,
-        "python -c \"import time; time.sleep(400)\"",
+        &format!(
+            "{} -c \"import time; time.sleep(400)\"",
+            crate::tools::default_python()
+        ),
         true,
         Some(2),
         false,

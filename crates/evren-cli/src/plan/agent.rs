@@ -30,6 +30,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use evren_core::catalog::SkillCatalog;
 use evren_core::tools::proc::spawn_in_group;
 use regex::Regex;
 use serde_json::Value;
@@ -382,6 +383,8 @@ pub struct Runtime {
     pub push_hook: Option<PushHook>,
     /// Süreçler arası ajan slotlarının dizini (`~/.evren/slots`).
     pub slots_dir: PathBuf,
+    /// Kullanıcı becerilerinin dizini (`<cli_home>/skills`); agent adımının `skills` alanı buradan çözülür.
+    pub skills_dir: PathBuf,
 }
 
 struct GitOut {
@@ -646,6 +649,56 @@ const INPUTS_DIRECTIVE: &str = concat!(
     "uydurma, \"girdide yok\" diye yaz."
 );
 
+/// Agent adımının `skills` alanındaki adlar (yoksa boş).
+pub fn step_skills(step: &Step) -> Result<Vec<String>, String> {
+    match step.get("skills") {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(list)) => list
+            .iter()
+            .map(|v| match v {
+                Value::String(s) if !s.trim().is_empty() => Ok(s.trim().to_string()),
+                _ => Err(format!("`skills` yalnız beceri adları içermeli: {v}")),
+            })
+            .collect(),
+        Some(v) => Err(format!("`skills` bir dizi olmalı: {v}")),
+    }
+}
+
+/// Plan başlamadan tüm agent adımlarının (parallel içi dahil) becerilerini doğrular.
+pub fn validate_skills(steps: &[Value], cat: &SkillCatalog) -> Result<(), String> {
+    for (i, v) in steps.iter().enumerate() {
+        let Some(step) = v.as_object() else { continue };
+        if let Some(inner) = step.get("steps").and_then(Value::as_array) {
+            validate_skills(inner, cat)?;
+        }
+        for name in step_skills(step)? {
+            if cat.get(&name).is_none() {
+                let mut known: Vec<&str> = cat.skills.keys().map(String::as_str).collect();
+                known.sort_unstable();
+                return Err(format!(
+                    "adım {}: bilinmeyen beceri `{name}` (mevcut: {})",
+                    i + 1,
+                    known.join(", ")
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `skills`: adı geçen becerilerin başlık/ne zaman/adımları ajan talimatına eklenir.
+pub fn skills_block(step: &Step, cat: &SkillCatalog) -> Result<String, String> {
+    let mut out = String::new();
+    for name in step_skills(step)? {
+        let skill = cat
+            .get(&name)
+            .ok_or_else(|| format!("bilinmeyen beceri `{name}`"))?;
+        out.push_str("\n\n");
+        out.push_str(&skill.prompt_block(""));
+    }
+    Ok(out)
+}
+
 /// Python'daki `resolve(root, rel)` (plan kökü dışını reddeden çözücü).
 pub type Resolver = fn(&Path, &str) -> Result<PathBuf, String>;
 
@@ -724,6 +777,9 @@ pub fn op_agent(
 
     let mut prompt = str_of(step, "prompt").ok_or("'prompt'")?;
     prompt.push_str(&inputs_block(step, root, resolve)?);
+    if !step_skills(step)?.is_empty() {
+        prompt.push_str(&skills_block(step, &SkillCatalog::load(&rt.skills_dir))?);
+    }
     if use_wt {
         let rp = repo.display().to_string();
         let rc: Vec<char> = rp.chars().collect();

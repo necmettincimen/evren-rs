@@ -757,7 +757,9 @@ impl RepeatGuard {
     fn repeat_breaker(&mut self, signature: &str) -> String {
         // Doğrulama komutu (test) son çalışmadan beri bir dosya değiştiyse meşru yeniden koşudur;
         // aynı hata çıktısı ayrıca `after_tool`daki AYNI HATA korumasıyla kesilir.
-        let epoch_moved = self.sig_epochs.insert(signature.to_string(), self.write_epoch)
+        let epoch_moved = self
+            .sig_epochs
+            .insert(signature.to_string(), self.write_epoch)
             .is_some_and(|e| e != self.write_epoch);
         if epoch_moved && is_verify_signature(signature) {
             self.sig_counts.insert(signature.to_string(), 0);
@@ -1077,7 +1079,10 @@ mod tests {
     fn test_command_after_edit_is_not_counted_as_repeat() {
         let mut g = RepeatGuard::new();
         g.set_role_limits(Some((3, 5)), "");
-        let sig = call_signature("run_command", &json!({"command": "node --test tests/a.test.js"}));
+        let sig = call_signature(
+            "run_command",
+            &json!({"command": "node --test tests/a.test.js"}),
+        );
         for _ in 0..6 {
             assert!(g.repeat_breaker(&sig).is_empty());
             g.write_epoch += 1;

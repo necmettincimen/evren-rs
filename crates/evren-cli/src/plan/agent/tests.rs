@@ -103,6 +103,7 @@ fn rt(w: &Ws, act: Box<Act>, push: Option<PushHook>) -> Runtime {
         runner: Box::new(Fake(act)),
         push_hook: push,
         slots_dir: w.slots.clone(),
+        skills_dir: w.slots.join("skills"),
     }
 }
 
@@ -828,5 +829,10 @@ fn state_sees_new_file_beside_nested_repo() {
         |wd| std::fs::write(wd.join("app/reports/new.md"), "yeni").unwrap(),
         "bitti",
     );
-    run(&w, json!({"prompt": "x", "repo": "app", "_label": "t-nested"}), &r).unwrap();
+    run(
+        &w,
+        json!({"prompt": "x", "repo": "app", "_label": "t-nested"}),
+        &r,
+    )
+    .unwrap();
 }

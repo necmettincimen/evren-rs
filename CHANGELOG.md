@@ -5,6 +5,15 @@ Bu projedeki tüm önemli değişiklikler bu dosyada belgelenir.
 Format [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) standardına,
 sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kurallarına dayanır.
 
+## [4.4.0] - 2026-11-06
+
+### Eklendi
+- Plan `agent` adımına `"skills": ["clickup", ...]` alanı: adı geçen becerinin (yerleşik ya da `<cli_home>/skills/*.md`) başlığı, ne zaman kullanılacağı ve adımları ajan talimatına eklenir. Bilinmeyen beceri adı plan başlamadan hata verir (`parallel` içi dahil).
+
+### Düzeltildi
+- `evren -p`: metin kipinde cevap hem akışta (stderr) hem sonda (stdout) yazıldığı için terminalde iki kez görünüyordu ("OKOK"). Metin kipinde cevap akışı basılmaz; JSON kipinde akış stderr'de kalır.
+- `EVREN_PYTHON` verilmemişse ve `python` yoksa `python3` kullanılır (`use_python` yalnız python3 kurulu makinelerde 127 veriyordu).
+
 ## [4.3.5] - 2026-11-03
 
 ### Düzeltildi
