@@ -171,7 +171,7 @@
       "type": "function",
       "function": {
         "name": "run_command",
-        "description": "YEREL makinede, çalışma alanında komut çalıştırır (test, derleme, sistem kontrolü). Kabuk bağlam bloğunda yazar (Windows'ta Git Bash varsa o: POSIX komutları, çok satır olur; yoksa cmd.exe). PowerShell için use_powershell=true, Python kodu için use_python=true. Çıktı uzunsa özetlenir; hedefli komut kullan.",
+        "description": "YEREL makinede, çalışma alanında komut çalıştırır (test, derleme, sistem kontrolü). Kabuk bağlam bloğunda yazar (Windows'ta Git Bash varsa o: POSIX komutları, çok satır olur; yoksa cmd.exe). PowerShell için use_powershell=true, Python kodu için use_python=true. Linux/macOS'ta bash; çalışma alanı içindeki `cd` sonraki çağrılarda da geçerlidir (kök dışına çıkılırsa köke dönülür). Etkileşimli istem yoktur (stdin kapalı, git/ssh kimlik sormaz, pager yok): komut girdi beklerse hata verir. Zaman aşımında kısmi çıktı döner; uzun iş için run_in_background=true. Çıktı uzunsa özetlenir; hedefli komut kullan.",
         "parameters": {
           "type": "object",
           "properties": {

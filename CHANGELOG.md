@@ -5,6 +5,15 @@ Bu projedeki tüm önemli değişiklikler bu dosyada belgelenir.
 Format [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) standardına,
 sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kurallarına dayanır.
 
+## [4.5.0] - 2026-11-06
+
+### Değişti (`run_command`)
+- Kalıcı çalışma dizini: kök içindeki `cd` sonraki komutlarda geçerli; kök dışına çıkınca kök'e dönülür ve ajana not düşülür.
+- Unix'te `/bin/bash` (yoksa `/bin/sh`): `[[ ]]`, `<(..)`, diziler çalışır.
+- Etkileşimsiz ortam: `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, pager'lar `cat`, `DEBIAN_FRONTEND=noninteractive`, `CI=1`, ssh `BatchMode=yes` (kullanıcı tanımlıysa dokunulmaz). `git push` kimlik sorup zaman aşımına kadar asılı kalmaz.
+- Zaman aşımında kısmi stdout/stderr döner, `timeout_seconds`/`run_in_background` önerilir.
+- ANSI renk/imleç kaçışları ve `\r` ilerleme artıkları çıktıdan temizlenir; çıktısız başarısız komutta `(çıktı yok)`.
+
 ## [4.4.1] - 2026-11-06
 
 ### Düzeltildi

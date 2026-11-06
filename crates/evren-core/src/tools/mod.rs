@@ -135,6 +135,8 @@ pub struct ToolContext {
     pub vault: Option<Arc<Mutex<SecretVault>>>,
     /// `search_code` / `describe_image` anahtar havuzu (yoksa yapılandırma sırası).
     pub key_source: Option<Arc<dyn vision::KeySource>>,
+    /// `run_command` için kalıcı çalışma dizini (kök içindeki son `cd`); `None` = kök.
+    pub cwd: Mutex<Option<PathBuf>>,
 }
 
 impl ToolContext {
@@ -164,6 +166,7 @@ impl ToolContext {
             info: None,
             vault: None,
             key_source: None,
+            cwd: Mutex::new(None),
         }
     }
 

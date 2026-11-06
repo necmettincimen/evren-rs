@@ -370,8 +370,23 @@ pub fn tool_run_command(
         Ok(a) => a,
         Err(e) => return format!("HATA: {e}"),
     };
+    let root = ctx.root();
+    let cwd = current_cwd(ctx, &root);
+    // Kalıcı `cd`: yalnız unix kabuk komutunda, bitişte `pwd` geçici dosyaya yazılır.
+    let cwd_file = (cfg!(unix) && argv.is_shell()).then(|| {
+        std::env::temp_dir().join(format!(
+            "evren-cwd-{}-{}",
+            std::process::id(),
+            CWD_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ))
+    });
+    let argv = match (&argv, &cwd_file) {
+        (Argv::Shell(text), Some(f)) => Argv::Shell(wrap_cwd(text, f)),
+        _ => argv,
+    };
     let mut cmd = argv.to_command();
-    cmd.current_dir(ctx.root()).envs(ctx.secret_env());
+    cmd.current_dir(&cwd).envs(ctx.secret_env());
+    noninteractive_env(&mut cmd);
     let outcome = match stream_with_tree_kill(
         &mut cmd,
         Some(Duration::from_secs(timeout as u64)),
@@ -380,24 +395,118 @@ pub fn tool_run_command(
         Ok(o) => o,
         Err(e) => return format!("HATA: Komut çalıştırılamadı: {e}"),
     };
+    let cwd_note = cwd_file.and_then(|f| update_cwd(ctx, &root, &cwd, &f));
+    let out = strip_ansi(outcome.stdout.trim());
+    let err = strip_ansi(outcome.stderr.trim());
+    let mut lines = Vec::new();
     if outcome.timed_out {
-        return format!(
-            "Çıkış Kodu: {TIMEOUT_EXIT_CODE}\nHATA: Komut {timeout} sn sonra zaman aşımına uğradı (süreç ağacı öldürüldü)."
-        );
+        lines.push(format!(
+            "Çıkış Kodu: {TIMEOUT_EXIT_CODE}\nHATA: Komut {timeout} sn sonra zaman aşımına uğradı (süreç ağacı öldürüldü). \
+             Uzun iş için timeout_seconds'ı artır (en çok {MAX_COMMAND_TIMEOUT}) ya da run_in_background=true kullan; \
+             aşağıdaki kısmi çıktıya bak, komutu körlemesine yeniden çalıştırma."
+        ));
+    } else {
+        lines.push(format!("Çıkış Kodu: {}", outcome.code));
     }
-    let out = outcome.stdout.trim();
-    let err = outcome.stderr.trim();
-    let mut lines = vec![format!("Çıkış Kodu: {}", outcome.code)];
     if !out.is_empty() {
         lines.push(format!(
             "STDOUT:\n{}",
-            spill_long_output(out, Some(&ctx.root()), "cmd", command)
+            spill_long_output(&out, Some(&root), "cmd", command)
         ));
     }
     if !err.is_empty() {
-        lines.push(format!("STDERR:\n{}", truncate_output(err)));
+        lines.push(format!("STDERR:\n{}", truncate_output(&err)));
+    }
+    if !outcome.timed_out && outcome.code != 0 && out.is_empty() && err.is_empty() {
+        lines.push("(çıktı yok)".to_string());
+    }
+    if let Some(note) = cwd_note {
+        lines.push(note);
     }
     lines.join("\n")
+}
+
+static CWD_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Geçerli kalıcı dizin; artık yoksa ya da kök dışındaysa kök.
+fn current_cwd(ctx: &ToolContext, root: &Path) -> std::path::PathBuf {
+    let saved = ctx.cwd.lock().ok().and_then(|g| g.clone());
+    match saved {
+        Some(d) if d.is_dir() && d.starts_with(root) => d,
+        _ => root.to_path_buf(),
+    }
+}
+
+/// Kullanıcı komutundan sonra çıkış kodunu koruyarak `pwd`'yi yazar.
+/// Komut `exit` ile biterse dizin kaydedilmez (önceki korunur).
+pub fn wrap_cwd(command: &str, file: &Path) -> String {
+    let f = file.to_string_lossy().replace('\'', "'\\''");
+    format!("{command}\n__evren_rc=$?; pwd -P > '{f}' 2>/dev/null; exit $__evren_rc")
+}
+
+/// `pwd` dosyasını okuyup kalıcı dizini günceller; kök dışına çıkıldıysa uyarı döner.
+fn update_cwd(ctx: &ToolContext, root: &Path, before: &Path, file: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(file).ok();
+    let _ = std::fs::remove_file(file);
+    let new = std::path::PathBuf::from(text?.trim());
+    if new.as_os_str().is_empty() || new == before {
+        return None;
+    }
+    let root_canon = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let mut guard = ctx.cwd.lock().ok()?;
+    if new.starts_with(&root_canon) || new.starts_with(root) {
+        *guard = Some(new);
+        None
+    } else {
+        *guard = None;
+        Some(format!(
+            "[EVREN] Çalışma dizini kök dışına çıktı ({}); sonraki komutlar yine {} içinde çalışır. Kök dışı için mutlak yol kullan.",
+            new.display(),
+            root.display()
+        ))
+    }
+}
+
+/// Etkileşimli istemleri ve sayfalayıcıları kapatır (stdin zaten /dev/null):
+/// `git push` kullanıcı adı sorup zaman aşımına kadar asılı kalmasın.
+pub fn noninteractive_env(cmd: &mut Command) {
+    const VARS: &[(&str, &str)] = &[
+        ("GIT_TERMINAL_PROMPT", "0"),
+        ("GCM_INTERACTIVE", "never"),
+        ("GIT_PAGER", "cat"),
+        ("PAGER", "cat"),
+        ("SYSTEMD_PAGER", ""),
+        ("MANPAGER", "cat"),
+        ("DEBIAN_FRONTEND", "noninteractive"),
+        ("PIP_NO_INPUT", "1"),
+        ("NPM_CONFIG_YES", "true"),
+        ("CI", "1"),
+    ];
+    for (k, v) in VARS {
+        if std::env::var_os(k).is_none() {
+            cmd.env(k, v);
+        }
+    }
+    if std::env::var_os("GIT_SSH_COMMAND").is_none() {
+        cmd.env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o ConnectTimeout=15");
+    }
+}
+
+fn ansi_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\r(?:\n)?")
+            .unwrap_or_else(|_| never_re())
+    })
+}
+
+/// Renk/imleç kaçışlarını ve satır başı (`\r`) ilerleme artıklarını temizler.
+pub fn strip_ansi(text: &str) -> String {
+    ansi_re()
+        .replace_all(text, |c: &regex::Captures| {
+            if c[0].starts_with('\r') { "\n" } else { "" }
+        })
+        .into_owned()
 }
 
 /// `run_in_background=true`: komutu arka planda başlatır, kimliğini döner.

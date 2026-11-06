@@ -299,7 +299,9 @@ pub fn shell_command(command: &str) -> Command {
     }
     #[cfg(not(windows))]
     {
-        let mut c = Command::new("/bin/sh");
+        // Ajanlar bash sözdizimi yazar (`[[`, `<(..)`, diziler); /bin/sh dash olabilir.
+        let sh = if std::path::Path::new("/bin/bash").exists() { "/bin/bash" } else { "/bin/sh" };
+        let mut c = Command::new(sh);
         c.args(["-c", command]);
         c
     }

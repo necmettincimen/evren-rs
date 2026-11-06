@@ -932,3 +932,45 @@ fn run_command_unseals_vault_and_masks_output() {
         "{{EVREN_SECRET_1}}"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn run_command_cd_persists_inside_root() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("alt")).unwrap();
+    let ctx = ctx_for(dir.path());
+    let r = super::command::tool_run_command(&ctx, "cd alt", true, None, false, false);
+    assert!(r.starts_with("Çıkış Kodu: 0"), "{r}");
+    let r = super::command::tool_run_command(&ctx, "basename \"$PWD\"", true, None, false, false);
+    assert!(r.contains("alt"), "{r}");
+    let r = super::command::tool_run_command(&ctx, "cd /", true, None, false, false);
+    assert!(r.contains("kök dışına"), "{r}");
+    let r = super::command::tool_run_command(&ctx, "pwd -P", true, None, false, false);
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    assert!(r.contains(&*root.to_string_lossy()) && !r.contains("/alt"), "{r}");
+}
+
+#[cfg(unix)]
+#[test]
+fn run_command_keeps_exit_code_and_bash_syntax() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = ctx_for(dir.path());
+    let r = super::command::tool_run_command(&ctx, "[[ 1 == 1 ]] && echo evet; exit 3", true, None, false, false);
+    assert!(r.starts_with("Çıkış Kodu: 3") && r.contains("evet"), "{r}");
+    let r = super::command::tool_run_command(&ctx, "echo $GIT_TERMINAL_PROMPT", true, None, false, false);
+    assert!(r.contains('0'), "{r}");
+}
+
+#[cfg(unix)]
+#[test]
+fn run_command_timeout_keeps_partial_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = ctx_for(dir.path());
+    let r = super::command::tool_run_command(&ctx, "echo yarim; sleep 5", true, Some(1), false, false);
+    assert!(r.contains("zaman aşımı") && r.contains("yarim"), "{r}");
+}
+
+#[test]
+fn strip_ansi_removes_colors() {
+    assert_eq!(super::command::strip_ansi("\x1b[31mkirmizi\x1b[0m a\r\nb"), "kirmizi a\nb");
+}
