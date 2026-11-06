@@ -5,6 +5,11 @@ Bu projedeki tüm önemli değişiklikler bu dosyada belgelenir.
 Format [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) standardına,
 sürümleme ise [Semantic Versioning](https://semver.org/lang/tr/) (SemVer) kurallarına dayanır.
 
+## [4.4.1] - 2026-11-06
+
+### Düzeltildi
+- `parallel` içindeki `repo`'suz `kind:"report"` (docs/explore) agent adımı, varsayılan `worktree:true` yüzünden "`repo` belirtilmeli" hatasıyla düşüyordu. Bu adımlara worktree zorlanmaz; `repo` verilmişse eski davranış sürer.
+
 ## [4.4.0] - 2026-11-06
 
 ### Eklendi

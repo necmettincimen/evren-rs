@@ -609,6 +609,12 @@ fn only_report_missing(missing: &[String]) -> bool {
         .all(|m| REPORT_ONLY_MISSING.contains(&m.as_str()))
 }
 
+/// `parallel` agent alt adımına varsayılan `worktree:true` verir; repo'suz rapor adımı hariç
+/// (ana ağaçta salt okur; worktree zorlamak onu `repo` yok diye reddettiriyordu).
+pub fn parallel_defaults_worktree(op: &str, sub: &Step) -> bool {
+    op == "agent" && !(is_report_kind(sub) && !sub.contains_key("repo"))
+}
+
 /// Salt rapor/doküman/keşif adımı: varsayılan olarak dosya değişikliği beklenmez.
 fn is_report_kind(step: &Step) -> bool {
     matches!(
@@ -1246,7 +1252,7 @@ pub fn op_parallel(
         let mut sub = expand(sub, ctx).as_object().cloned().unwrap_or_default();
         sub.insert("_label".into(), Value::String(format!("{base_label}.{j}")));
         let op = sub.get("op").map(py_str).unwrap_or_else(|| "None".into());
-        if op == "agent" {
+        if parallel_defaults_worktree(&op, &sub) {
             sub.entry("worktree").or_insert(Value::Bool(true));
         }
         let _slot = (op == "agent" && !dry).then(|| agent_slot(slots_dir, cap));

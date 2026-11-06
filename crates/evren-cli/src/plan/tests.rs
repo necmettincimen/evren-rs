@@ -335,3 +335,11 @@ fn skill_text_goes_into_prompt() {
     }
     assert!(agent::skills_block(&step(json!({"skills": ["yok"]})), &cat).is_err());
 }
+
+#[test]
+fn parallel_report_without_repo_skips_worktree() {
+    assert!(!agent::parallel_defaults_worktree("agent", &step(json!({"op":"agent","kind":"report"}))));
+    assert!(agent::parallel_defaults_worktree("agent", &step(json!({"op":"agent","kind":"report","repo":"r"}))));
+    assert!(agent::parallel_defaults_worktree("agent", &step(json!({"op":"agent"}))));
+    assert!(!agent::parallel_defaults_worktree("run", &step(json!({"op":"run"}))));
+}
